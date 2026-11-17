@@ -1,0 +1,43 @@
+[package]
+name = "nexus"
+version = "1.0.0"
+edition = "2024"
+repository = "https://github.com/utoptop/nexus"
+description = "Nexus real-time visitor and node traffic dashboard"
+rust-version = "1.93"
+
+[dependencies]
+axum = { version = "0.7", features = ["macros", "ws"] }
+tokio = { version = "1.0", features = ["full"] }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json"] }
+anyhow = "1.0"
+askama = "0.12"
+moka = { version = "0.12", features = ["future"] } # 👉 务必加上这行，我们的 LRU 高速缓存引擎需要它
+maxminddb = "0.24"
+arc-swap = "1.6"
+notify = "6.1"
+rmp-serde = "1.1"
+bytes = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15.7"
+rand = "0.8"
+sha2 = "0.10"
+subtle = "2.6"
+ring = "0.17.14"
+hex = "0.4.3"
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+
+[profile.release]
+opt-level = 3          # 开启最高级别运行速度优化 (3 为最高)
+lto = "fat"            # 开启链接时优化，跨 crate 极致内联，大幅提升性能
+codegen-units = 1      # 用更长的编译时间换取极限的运行速度
+strip = true           # 替代 Dockerfile 中的手动 strip，移除所有调试符号
+panic = "abort"        # 遇到恐慌直接崩溃，不进行栈展开 (减小体积，提升速度)
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

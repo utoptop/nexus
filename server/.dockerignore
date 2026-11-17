@@ -1,0 +1,15 @@
+target/
+.git/
+.gitignore
+.DS_Store
+pgdata/
+data/
+geo-data/
+check_log.txt
+*.log
+
+.env
+.env.*
+**/.DS_Store
+tests/
+*.bak

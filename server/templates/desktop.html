@@ -1,0 +1,2402 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>{{ t_title }}</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;900&display=swap');
+    :root { 
+        --smooth-curve: cubic-bezier(0.16, 1, 0.3, 1); 
+        --bg-panel: rgba(11, 15, 25, 0.65); 
+        --bg-modal: rgba(11, 15, 25, 0.75); 
+        --border-glow: rgba(6, 182, 212, 0.4); 
+        --ip-bubble-size: 11px; 
+        --visitor-dot-size: 4px;
+        --halo-size: 40px; 
+        
+        --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+        --accent-cyan: #06b6d4;
+        --accent-purple: #8b5cf6;
+        --accent-emerald: #10b981;
+    }
+    body { background:#030712; color:#f8fafc; font-family:'Inter', system-ui, sans-serif; margin:0; padding:0; height:100vh; overflow:hidden; touch-action: none; letter-spacing: 0.3px; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 6px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+    
+    .leaflet-container { background: #000000 !important; outline: none; will-change: transform; }
+    .leaflet-tile { transform: translateZ(0); will-change: transform, opacity; filter: saturate(1.2) contrast(1.1); }
+    #map-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+    #map { width:100%; height:100%; background:transparent !important; outline: none; transform: translate3d(0,0,0); }
+    
+    body.is-interacting .panel { backdrop-filter: none !important; transition: none !important; }
+    body.is-interacting .conn-channel-flow { opacity: 0.3 !important; animation: none !important; transition: none !important; }
+    body.is-interacting .leaflet-tooltip { transition: none !important; }
+    .cooling-flow { opacity: 0 !important; transition: opacity 0.3s ease-out; }
+    
+    .ui-wrapper { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; display: flex; flex-direction: column; pointer-events: none; }
+    .mobile-only { display: none !important; }
+    
+    #resizer { position: relative; height: 16px; background: rgba(11, 15, 25, 0.4); cursor: row-resize; display: flex; justify-content: center; align-items: center; border-top: var(--glass-border); border-bottom: var(--glass-border); backdrop-filter: blur(10px); pointer-events: auto; z-index: 1000; transition: background 0.3s ease; }
+    #resizer::after { content: ''; width: 50px; height: 3px; background: rgba(255,255,255,0.2); border-radius: 3px; }
+    #resizer:hover { background: rgba(11, 15, 25, 0.8); }
+    #resizer:hover::after { background: var(--accent-cyan); box-shadow: 0 0 10px var(--accent-cyan); }
+    
+    .panel { position: relative; height: 40vh; backdrop-filter: blur(24px) saturate(150%); flex: none; display: flex; flex-direction: column; overflow: visible; transition: height 0.4s var(--smooth-curve), background-color 0.3s ease; border-top: var(--glass-border); pointer-events: auto; z-index: 9000; background-color: var(--bg-panel); will-change: transform, height; transform: translateZ(0); border-radius: 24px 24px 0 0; margin: 0 10px; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); }
+    .panel-content { flex: 1; position: relative; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding: 0 5px; display: flex; flex-direction: column; }
+    .top-bar-wrap { padding: 20px 25px 0 25px; flex: none; border-bottom: 1px solid rgba(255,255,255,0.03); margin-bottom: 0; padding-bottom: 15px; position: relative; }
+    
+    body.is-resizing .panel { transition: none !important; will-change: auto; border-radius: 0; margin: 0; }
+    body.is-resizing * { user-select: none; }
+    .fullscreen .ui-wrapper { pointer-events: none; } 
+    .fullscreen .panel { position: fixed; top: 10px; right: 10px; width: 450px; max-width: 90vw; height: calc(100vh - 20px) !important; z-index: 9000; border: var(--glass-border); background: var(--bg-modal); border-radius: 20px; transform: translate3d(120%, 0, 0); transition: transform 0.5s var(--smooth-curve); pointer-events: auto; box-shadow: -10px 10px 40px rgba(0,0,0,0.8); margin: 0; }
+    .fullscreen.show-sidebar .panel { transform: translate3d(0, 0, 0); }
+    
+    .left-net-menu, .top-ctrl { background: linear-gradient(135deg, rgba(15,23,42,0.6), rgba(2,6,23,0.8)); border: var(--glass-border); backdrop-filter: blur(30px) saturate(150%); box-shadow: 0 15px 40px rgba(0,0,0,0.6), inset 0 0 20px rgba(255,255,255,0.02); }
+    .top-ctrl { position: fixed; top: 20px; right: 20px; z-index: 9501; display: flex; flex-direction: column; gap: 8px; border-radius: 20px; padding: 20px; transform: translate3d(120%, 0, 0); transition: transform 0.4s var(--smooth-curve); pointer-events: auto; width: 200px; }
+    .top-ctrl.open { transform: translate3d(0, 0, 0); }
+    
+    .left-net-menu { position: fixed; top: 20px; left: 20px; z-index: 9501; display: flex; flex-direction: column; gap: 12px; border-radius: 20px; padding: 20px; transform: translate3d(-120%, 0, 0); transition: transform 0.4s var(--smooth-curve); pointer-events: auto; width: 360px; max-width: 90vw; max-height: 85vh; overflow-y: auto; }
+    .left-net-menu.open { transform: translate3d(0, 0, 0); }
+    
+    .left-net-toggle-btn, .menu-toggle-btn { position: fixed; top: 25px; z-index: 9500; background: rgba(11,15,25,0.5); border: var(--glass-border); border-radius: 12px; padding: 12px; color: #fff; font-size: 20px; cursor: pointer; box-shadow: 0 5px 20px rgba(0,0,0,0.5); backdrop-filter: blur(15px); transition: 0.3s var(--smooth-curve); pointer-events: auto; display: flex; align-items: center; justify-content: center; }
+    .left-net-toggle-btn { left: 25px; } .menu-toggle-btn { right: 25px; }
+    .left-net-toggle-btn:hover, .menu-toggle-btn:hover { background: rgba(255,255,255,0.05); transform: scale(1.05); border-color: rgba(255,255,255,0.2); }
+    .left-net-menu.open ~ .left-net-toggle-btn { transform: translate3d(-150%, 0, 0); }
+    .top-ctrl.open ~ .menu-toggle-btn { transform: translate3d(150%, 0, 0); }
+    .fullscreen.show-sidebar .menu-toggle-btn { right: 500px; }
+    
+    .hub-return-btn { position: fixed; top: 25px; left: 85px; z-index: 9500; background: rgba(11,15,25,0.65); border: 1px solid rgba(6,182,212,0.35); border-radius: 12px; padding: 10px 18px; color: #38bdf8; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 5px 20px rgba(0,0,0,0.5), inset 0 0 10px rgba(6,182,212,0.1); backdrop-filter: blur(20px); transition: 0.3s var(--smooth-curve); pointer-events: auto; display: flex; align-items: center; gap: 8px; }
+    .hub-return-btn:hover { background: linear-gradient(90deg, rgba(6,182,212,0.25), rgba(139,92,246,0.2)); color: #fff; border-color: #06b6d4; transform: scale(1.04); box-shadow: 0 8px 25px rgba(0,0,0,0.6), 0 0 20px rgba(6,182,212,0.3); }
+    body.show-dashboard .hub-return-btn { display: none !important; }
+    .left-net-menu.open ~ .hub-return-btn { transform: translate3d(-200%, 0, 0); }
+
+    .btn, .cyber-select, .multi-sel-btn, .primary-btn, .danger-btn, .apply-btn { font-family: 'Inter', sans-serif; box-sizing: border-box; cursor: pointer; font-weight: 500; outline: none; transition: 0.3s var(--smooth-curve); }
+    .btn:active, .cyber-select:active, .multi-sel-btn:active, .primary-btn:active, .danger-btn:active, .apply-btn:active { transform: scale(0.95); }
+    
+    .btn { background: rgba(255,255,255,0.03); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.05); padding: 10px 16px; border-radius: 10px; font-size: 13px; position: relative; overflow: hidden; display: flex; justify-content: flex-start; align-items: center; gap: 10px; }
+    .btn:hover { background: rgba(255,255,255,0.08); color: #fff; transform: translateX(-4px) scale(0.98); }
+    
+    .btn.lang-btn { border-left: 3px solid var(--accent-purple); }
+    .btn.lang-btn:hover { background: linear-gradient(90deg, rgba(139,92,246,0.15), transparent); border-color: rgba(139,92,246,0.4); box-shadow: inset 10px 0 20px -10px rgba(139,92,246,0.4); }
+    .btn.freq-btn { border-left: 3px solid #f59e0b; }
+    .btn.freq-btn:hover { background: linear-gradient(90deg, rgba(245,158,11,0.15), transparent); border-color: rgba(245,158,11,0.4); }
+    .btn.play-btn { border-left: 3px solid var(--accent-emerald); }
+    .btn.play-btn:hover { background: linear-gradient(90deg, rgba(16,185,129,0.15), transparent); border-color: rgba(16,185,129,0.4); }
+    .btn.cluster-btn { border-left: 3px solid var(--accent-cyan); }
+    .btn.cluster-btn:hover { background: linear-gradient(90deg, rgba(6,182,212,0.15), transparent); border-color: rgba(6,182,212,0.4); }
+    .btn.logout-btn { border-left: 3px solid #ef4444; }
+    .btn.logout-btn:hover { background: linear-gradient(90deg, rgba(239,68,68,0.15), transparent); border-color: rgba(239,68,68,0.4); }
+    
+    .btn.active-btn { background: rgba(255,255,255,0.1) !important; color: #fff !important; border-left: 3px solid #f8fafc !important; }
+    
+    .top-ctrl .sidebar-btn { display: none !important; } 
+    body.fullscreen .top-ctrl .sidebar-btn { display: flex !important; } 
+    #close-sidebar { display:none; background:rgba(255,255,255,0.05); border:none; color:#cbd5e1; border-radius:50%; width: 32px; height: 32px; display:flex; align-items:center; justify-content:center; cursor:pointer; margin-left:auto; transition:0.3s; }
+    #close-sidebar:hover { background:rgba(239,68,68,0.2); color:#ef4444; transform: rotate(90deg); }
+    .fullscreen #close-sidebar { display:flex; }
+    
+    @keyframes smoothDropdown { from { opacity: 0; transform: translate3d(0, -10px, 0) scale(0.98); } to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }
+    @keyframes smoothPopIn { from { opacity: 0; transform: translate3d(-50%, -48%, 0) scale(0.95); } to { opacity: 1; transform: translate3d(-50%, -50%, 0) scale(1); } }
+    
+    .cyber-playback-bar { display: none; position: fixed; top: 75px; left: 50%; transform: translateX(-50%); background: rgba(15,23,42,0.75); border: var(--glass-border); border-top: 1px solid rgba(255,255,255,0.15); border-radius: 100px; padding: 10px 24px; z-index: 9600; backdrop-filter: blur(24px) saturate(150%); align-items: center; gap: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.8), inset 0 2px 10px rgba(255,255,255,0.05); pointer-events: auto; animation: smoothDropdown 0.4s var(--smooth-curve) forwards; width: auto; min-width: 420px; max-width: 90vw; transition: left 0.4s var(--smooth-curve), transform 0.4s var(--smooth-curve), max-width 0.4s var(--smooth-curve), top 0.4s var(--smooth-curve); }
+
+    /* 解决全屏模式下点击数据面板与轨迹回放进度条重叠问题 */
+    body.fullscreen.show-sidebar .cyber-playback-bar { left: calc((100vw - 470px) / 2); transform: translateX(-50%); max-width: calc(100vw - 500px); min-width: 300px; }
+    body.fullscreen.show-sidebar .exit-fs-btn { left: calc((100vw - 470px) / 2); transform: translateX(-50%); }
+    body.fullscreen.show-sidebar .panel { z-index: 9700; }
+    @media (max-width: 1080px) { body.fullscreen.show-sidebar .cyber-playback-bar { top: auto; bottom: 25px; left: calc((100vw - 470px) / 2); max-width: calc(100vw - 490px); } }
+    @media (max-width: 850px) { body.fullscreen.show-sidebar .cyber-playback-bar { left: 50%; max-width: 90vw; bottom: 20px; } }
+    
+    .title-group { display:flex; align-items:center; justify-content: space-between; flex-wrap:wrap; width: 100%; }
+    .title-group h2 { margin:0; color:#fff; font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+    
+    .v-header { display: flex; width: 100%; position: sticky; top: 0; z-index: 20; background: transparent; border-bottom: 1px solid rgba(255,255,255,0.05); padding: 12px 25px; font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; box-sizing: border-box; }
+    .v-row { display: flex; width: calc(100% - 10px); margin: 4px 5px; height: 50px; align-items: center; padding: 0 20px; border: 1px solid transparent; border-radius: 12px; box-sizing: border-box; cursor: pointer; transition: 0.3s ease; position: absolute; left: 0; background: rgba(255,255,255,0.015); }
+    .v-row:hover { background: rgba(255,255,255,0.04); transform: scale(1.01); border-color: rgba(255,255,255,0.08); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+    
+    .row-top-1 { background: linear-gradient(90deg, hsla(var(--row-h, 200), 85%, 60%, 0.1), transparent); border-left: 3px solid hsl(var(--row-h, 200), 85%, 60%); }
+    .row-top-2 { background: linear-gradient(90deg, hsla(var(--row-h, 200), 85%, 60%, 0.05), transparent); border-left: 2px solid hsl(var(--row-h, 200), 85%, 60%); opacity: 0.9; }
+    .row-top-1:hover, .row-top-2:hover { background: linear-gradient(90deg, hsla(var(--row-h, 200), 85%, 60%, 0.2), transparent); }
+    
+    @keyframes silky-row-flash { 0% { background: linear-gradient(90deg, hsla(var(--row-h, 200), 100%, 70%, 0.3), transparent); transform: scale(1.02); } 100% { background: rgba(255,255,255,0.015); transform: scale(1); } }
+    .flash-trigger { animation: silky-row-flash 0.6s var(--smooth-curve) forwards !important; }
+    
+    .v-col { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 15px; font-size: 13px; color: #cbd5e1; }
+    .c-node { flex: 1.5; min-width: 100px; font-weight: 500; }
+    .c-ip { flex: 2; font-family: 'SF Mono', monospace; color: var(--accent-cyan); min-width: 120px; font-size: 12px; }
+    .c-loc { flex: 2.5; min-width: 150px; }
+    .c-hits { flex: 0.8; font-weight: 600; color: #fff; min-width: 50px; }
+    .c-lang { flex: 0.8; min-width: 50px; color: #94a3b8; }
+    .c-time { flex: 1.5; text-align: right; color: #64748b; min-width: 140px; padding-right: 0; font-size: 12px; }
+    
+    .node-badge { background: hsla(var(--row-h, 160), 85%, 60%, 0.1); color: hsl(var(--row-h, 160), 90%, 75%); padding:4px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+    .domain-tag { font-size:10px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); color:#10b981; padding:3px 8px; border-radius:10px; margin-top:2px; display:inline-block;}
+    .domain-tag.missing { background:rgba(100,116,139,0.1); border-color: rgba(100,116,139,0.2); color:#94a3b8; }
+    
+    .hm-box { display:flex !important; align-items:center; justify-content:center; width:100% !important; height: 80px !important; position:relative; padding: 10px 0 0 0; margin-top: 15px; border-top: var(--glass-border); box-sizing: border-box; }
+    
+    #ws-tag { padding:4px 10px; border-radius:12px; font-size:10px; font-weight: 600; color: #94a3b8; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
+    #ws-tag::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    
+    .cyber-select { background: rgba(255,255,255,0.03); color: #f8fafc; border: var(--glass-border); padding: 8px 15px; border-radius: 10px; font-size: 13px; height: 38px; }
+    .cyber-select:hover, .cyber-select:focus { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2); }
+    
+    .opacity-ctrl { display:flex; align-items:center; gap:12px; background:rgba(255,255,255,0.03); padding:0 15px; height: 38px; border-radius:10px; border:var(--glass-border); pointer-events: auto; }
+    .opacity-slider { -webkit-appearance: none; width: 85px; height: 4px; background: rgba(255,255,255,0.1); outline: none; border-radius: 2px; }
+    .opacity-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; cursor: pointer; box-shadow: 0 0 10px rgba(255,255,255,0.5); transition: 0.2s; }
+    .opacity-slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
+    
+    .multi-sel-container { position:relative; display:inline-block; }
+    .multi-sel-btn { background:rgba(255,255,255,0.03); color:#f8fafc; border:var(--glass-border); border-radius:10px; padding:0 15px; height:38px; min-width:140px; display:flex; justify-content:space-between; align-items:center; font-size: 13px; }
+    .multi-sel-btn:hover { background:rgba(255,255,255,0.06); }
+    .multi-sel-menu { display:none; position:absolute; bottom:calc(100% + 10px); left:0; background:var(--bg-modal); border:var(--glass-border); border-radius:16px; z-index:9999; width:220px; max-height:45vh; overflow-y:auto; padding:15px; box-shadow:0 -10px 40px rgba(0,0,0,0.8), inset 0 0 20px rgba(255,255,255,0.02); flex-direction:column; gap:8px; backdrop-filter: blur(24px); }
+    .multi-sel-menu.show { display:flex; animation: smoothDropdown 0.3s var(--smooth-curve) forwards; }
+    .fullscreen .multi-sel-menu { top: calc(100% + 10px); bottom: auto; }
+    .multi-sel-menu label { font-size:13px; cursor:pointer; display:flex; align-items:center; gap:10px; color:#cbd5e1; padding: 6px 10px; border-radius: 8px; transition: 0.2s; }
+    .multi-sel-menu label:hover { background: rgba(255,255,255,0.05); color: #fff; }
+    .multi-sel-menu input[type="checkbox"] { cursor:pointer; width:16px; height:16px; accent-color: var(--accent-cyan); }
+    .apply-btn { background: #fff; color: #000; border:none; padding:10px; border-radius:10px; font-size: 13px; font-weight: 600; width:100%; margin-top:10px; }
+    .apply-btn:hover { background: #cbd5e1; }
+    
+    .cyber-modal { display:none; position:fixed; top:50%; left:50%; width:90%; max-width:800px; max-height:85vh; background:var(--bg-modal); border:var(--glass-border); border-radius:24px; z-index:10000; box-shadow:0 30px 80px rgba(0,0,0,0.9), inset 0 0 30px rgba(255,255,255,0.03); overflow:hidden; flex-direction:column; backdrop-filter: blur(30px) saturate(150%); pointer-events: auto; transform: translate(-50%, -50%); animation: smoothPopIn 0.4s var(--smooth-curve) forwards; }
+    
+    .domain-panel { position: absolute; top: 80px; right: 20px; width: 360px; max-height: 65vh; background: var(--bg-modal); border: var(--glass-border); border-radius: 20px; z-index: 9600; display: none; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,0.8), inset 0 0 20px rgba(255,255,255,0.02); backdrop-filter: blur(24px) saturate(150%); animation: smoothDropdown 0.4s var(--smooth-curve) forwards; overflow: hidden; transition: right 0.4s var(--smooth-curve); }
+    
+    #toast-container { position: fixed; bottom: 30px; right: 30px; z-index: 10500; display: flex; flex-direction: column; gap: 15px; pointer-events: none; }
+    .cyber-toast { pointer-events: auto; background: rgba(15,23,42,0.9); border-left: 4px solid var(--accent-cyan); padding: 18px 20px; border-radius: 12px; box-shadow: 0 15px 30px rgba(0,0,0,0.6); backdrop-filter: blur(12px); color: #f8fafc; font-size: 13px; animation: slideInRight 0.4s var(--smooth-curve) forwards; width: 300px; display: flex; flex-direction: column; gap: 10px; }
+    .cyber-toast .actions { display: flex; gap: 12px; }
+    .cyber-toast button { flex: 1; padding: 8px; border-radius: 8px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+    .toast-btn-yes { background: #fff; color: #000; }
+    .toast-btn-yes:hover { background: #e2e8f0; }
+    .toast-btn-no { background: rgba(255,255,255,0.1); color: #fff; }
+    .toast-btn-no:hover { background: rgba(255,255,255,0.2); }
+    @keyframes slideInRight { from { transform: translate3d(120%, 0, 0); opacity: 0; } to { transform: translate3d(0, 0, 0); opacity: 1; } }
+    
+    .custom-icon { background: transparent; border: none; overflow: visible; }
+    .node-core { width: 8px; height: 8px; border-radius: 50%; background: currentColor; transition: transform 0.3s ease; position: absolute; top: -4px; left: -4px; z-index: 2; box-shadow: 0 0 10px currentColor; }
+    .hub-core { width: 14px; height: 14px; top: -7px; left: -7px; }
+    .node-pulse { position: absolute; border-radius: 50%; background: radial-gradient(circle, currentColor 0%, transparent 70%); top: -10px; left: -10px; width: 20px; height: 20px; opacity: 0; pointer-events: none; z-index: 1; }
+    .hub-pulse { top: -20px; left: -20px; width: 40px; height: 40px; }
+    
+    .visitor-dot-wrapper { overflow: visible !important; }
+    .visitor-core-dot {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: var(--visitor-dot-size); height: var(--visitor-dot-size);
+        background: #fff; border-radius: 50%;
+        box-shadow: 0 0 calc(var(--visitor-dot-size) * 3) var(--accent-cyan);
+        transition: 0.2s;
+    }
+    
+    .transient-ping-wrapper { overflow: visible !important; pointer-events: none; z-index: 100 !important; }
+    .transient-halo {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%) scale(0.1);
+        width: var(--halo-size); height: var(--halo-size);
+        border: 2px solid currentColor; border-radius: 50%;
+        opacity: 0; pointer-events: none;
+        box-shadow: inset 0 0 20px currentColor, 0 0 20px currentColor;
+    }
+    @keyframes transient-halo-flash { 0% { transform: translate(-50%, -50%) scale(0.1); opacity: 1; border-width: 3px; } 100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; border-width: 0; } }
+    @keyframes cyber-pulse { 0% { transform: scale(0.5); opacity: 0.8; } 100% { transform: scale(3.5); opacity: 0; } }
+    @keyframes cluster-pop { 0% { transform: scale(0.8); opacity: 0.5; } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    
+    {{ mobile_css|safe }}
+    
+    .modal-header { display:flex; justify-content:space-between; align-items:center; padding:20px 25px; border-bottom:var(--glass-border); }
+    .modal-header h3 { margin:0; color:#fff; font-size: 16px; font-weight: 600; }
+    .close-btn-x { background:rgba(255,255,255,0.05); border:none; color:#cbd5e1; font-size:16px; cursor:pointer; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; transition: 0.2s; }
+    .close-btn-x:hover { background:rgba(255,255,255,0.1); color:#fff; transform: rotate(90deg); }
+    
+    .modal-body { padding:0; overflow-y:auto; flex:1; display: flex; flex-direction: column; }
+    .tab-btns { display:flex; gap:10px; padding: 20px 25px 0 25px; border-bottom:var(--glass-border); flex-wrap: wrap; }
+    .tab-btn { background:none; border:none; color:#64748b; font-size:14px; cursor:pointer; padding:10px 5px; margin-right: 15px; position: relative; transition: 0.3s; font-weight: 600; }
+    .tab-btn:hover { color: #cbd5e1; }
+    .tab-btn.active { color:#fff; }
+    .tab-btn.active::after { content:''; position:absolute; bottom:-1px; left:0; width:100%; height:2px; background:var(--accent-cyan); border-radius: 2px 2px 0 0; }
+    .tab-content { display:none; padding: 25px; flex: 1; animation: smoothPopIn 0.3s ease; } 
+    .tab-content.active { display:block; }
+    
+    .primary-btn { background: #fff; color: #000; border:none; padding:12px 24px; border-radius:12px; font-size:13px; font-weight:600; }
+    .danger-btn { background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.2); padding:10px 20px; border-radius:12px; font-size:13px; font-weight:600; }
+    .danger-btn:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
+    
+    input[type="text"], input[type="password"], input[type="number"] { background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:#fff; padding:12px 15px; border-radius:12px; outline:none; font-family:'Inter', monospace; font-size:13px; transition: 0.3s; }
+    input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:focus { border-color: rgba(255,255,255,0.3); background:rgba(0,0,0,0.4); box-shadow: 0 0 15px rgba(255,255,255,0.05); }
+    
+    .cyber-modal table { width: 100%; border-collapse: separate; border-spacing: 0 4px; text-align: left; }
+    .cyber-modal th { padding: 12px 15px; color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; border-bottom: var(--glass-border); }
+    .cyber-modal td { padding: 12px 15px; font-size: 13px; color: #e2e8f0; background: rgba(255,255,255,0.02); }
+    .cyber-modal tr td:first-child { border-radius: 12px 0 0 12px; }
+    .cyber-modal tr td:last-child { border-radius: 0 12px 12px 0; }
+    .cyber-modal tr:hover td { background: rgba(255,255,255,0.05); }
+    .cyber-modal td code { background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px; color: var(--accent-purple); font-family: 'SF Mono', monospace; }
+    
+    
+    
+/* --- NEW CYBER DASHBOARD CSS ARCHITECTURE --- */
+body { background-color: #020617; } /* Deepest space blue/black */
+@media (min-width: 769px) {
+    #cyber-dashboard {
+        position: fixed; top: 15px; left: 15px; width: calc(100vw - 490px); height: calc(100vh - 30px);
+        z-index: 8000; display: flex; gap: 20px; opacity: 0; pointer-events: none;
+        transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    body.show-dashboard #cyber-dashboard { opacity: 1; pointer-events: auto; }
+    
+    body.show-dashboard .panel#data-panel {
+        position: fixed !important; top: 15px !important; right: 15px !important; bottom: 15px !important; 
+        width: 440px !important; height: calc(100vh - 30px) !important;
+        border-radius: 24px !important; margin: 0 !important; transform: none !important;
+        background: linear-gradient(180deg, rgba(15,23,42,0.85) 0%, rgba(2,6,23,0.95) 100%) !important;
+        backdrop-filter: blur(24px) saturate(150%) !important;
+        box-shadow: -15px 0 50px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.06) !important;
+        border: none !important;
+        display: flex !important; flex-direction: column !important; opacity: 1 !important; z-index: 8000 !important;
+    }
+    body.show-dashboard .panel#data-panel .top-bar-wrap { padding-top: 25px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+}
+
+.dash-sidebar {
+    width: 250px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 24px; padding: 30px 20px; display: flex; flex-direction: column; gap: 12px;
+    backdrop-filter: blur(30px) saturate(150%); box-shadow: inset 0 0 30px rgba(255,255,255,0.01);
+}
+.dash-sidebar-logo {
+    font-size: 18px; font-weight: 900; margin-bottom: 30px; padding-left: 10px;
+    background: linear-gradient(to right, #06b6d4, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip:text;
+    letter-spacing: 2px; display:flex; align-items:center; gap:12px; filter: drop-shadow(0 0 15px rgba(6,182,212,0.4));
+}
+.dash-nav-btn {
+    background: transparent; color: #94a3b8; border: none; padding: 14px 18px; border-radius: 14px;
+    font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display:flex; align-items:center; gap: 14px; border: 1px solid transparent;
+}
+.dash-nav-btn:hover { background: rgba(255,255,255,0.03); color: #f8fafc; border-color: rgba(255,255,255,0.05); transform: translateX(5px); }
+.dash-nav-btn.active { 
+    background: linear-gradient(90deg, rgba(6,182,212,0.15) 0%, transparent 100%); 
+    color: #06b6d4; border-left: 3px solid #06b6d4; border-top-left-radius: 4px; border-bottom-left-radius: 4px;
+    box-shadow: inset 20px 0 30px -20px rgba(6,182,212,0.4);
+}
+
+.dash-main { flex: 1; display: flex; flex-direction: column; gap: 25px; min-width: 0; }
+
+.dash-kpis { display: flex; gap: 20px; height: 130px; }
+.dash-kpi-card {
+    flex: 1; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.05); border-radius: 20px;
+    padding: 24px; display: flex; flex-direction: column; justify-content: space-between;
+    backdrop-filter: blur(30px) saturate(150%); position: relative; overflow: hidden;
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5); transition: 0.3s;
+}
+.dash-kpi-card:hover { transform: translateY(-4px); border-color: rgba(255,255,255,0.1); }
+.dash-kpi-card::before { content:''; position:absolute; top:0;left:0;width:100%;height:3px; background: linear-gradient(90deg, #06b6d4, transparent); }
+.dash-kpi-card.purple::before { background: linear-gradient(90deg, #8b5cf6, transparent); }
+.dash-kpi-card.emerald::before { background: linear-gradient(90deg, #10b981, transparent); }
+.dash-kpi-card::after { content:''; position:absolute; right:-20px; top:-20px; width:100px; height:100px; border-radius:50%; background: #06b6d4; filter: blur(50px); opacity: 0.05; pointer-events: none; }
+.dash-kpi-card.purple::after { background: #8b5cf6; } 
+.dash-kpi-card.emerald::after { background: #10b981; }
+
+.dash-kpi-title { font-size: 12px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.8; }
+.dash-kpi-value { font-size: 42px; color: #f8fafc; font-weight: 800; font-family: 'SF Mono', monospace; letter-spacing:-1px; text-shadow:0 0 30px rgba(255,255,255,0.1); line-height: 1; }
+
+.dash-charts { flex: 1; display: flex; gap: 20px; min-height: 200px; }
+.dash-chart-card {
+    background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.05); border-radius: 20px;
+    padding: 24px; display: flex; flex-direction: column; backdrop-filter: blur(30px) saturate(150%);
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+}
+.dash-chart-title { font-size: 15px; color: #f8fafc; font-weight: 700; margin-bottom: 15px; flex: none; letter-spacing: 0.5px; opacity: 0.9; }
+
+/* Critical Fix against Chart.js Freeze */
+.dash-chart-container { 
+    flex: 1; position: relative; width: 100%; height: 100%; min-height: 0; min-width: 0;
+}
+.dash-chart-container canvas {
+    position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important;
+}
+/* ----------------------------------------------- */
+
+{{ map_bubble_css|safe }}
+
+    .exit-fs-btn { position: fixed; top: 15px; left: 50%; transform: translateX(-50%); z-index: 10000; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(6, 182, 212, 0.4); border-radius: 20px; color: #06b6d4; font-size: 13px; font-weight: 700; padding: 10px 20px; backdrop-filter: blur(12px); box-shadow: 0 0 15px rgba(0,0,0,0.5), 0 0 10px rgba(6, 182, 212, 0.2); cursor: pointer; transition: 0.3s; display: none; align-items:center; gap:8px; }
+    .exit-fs-btn:hover { background: #06b6d4; color: #020617; box-shadow: 0 0 20px rgba(6, 182, 212, 0.6); }
+    body.fullscreen .exit-fs-btn { position: fixed; top: 15px; left: 50%; transform: translateX(-50%); z-index: 10000; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(6, 182, 212, 0.4); border-radius: 20px; color: #06b6d4; font-size: 13px; font-weight: 700; padding: 10px 20px; backdrop-filter: blur(12px); box-shadow: 0 0 15px rgba(0,0,0,0.5), 0 0 10px rgba(6, 182, 212, 0.2); cursor: pointer; transition: 0.3s; display: none; align-items:center; gap:8px; }
+
+{{ layout_css|safe }}
+</style></head><body>
+
+<header class="mobile-topbar mobile-only">
+    <div class="mobile-identity"><span class="mobile-brand">NEXUS</span><span class="mobile-subtitle" id="mobile-view-title">{% if lang == "zh" %}实时流量地图{% else %}Live traffic map{% endif %}</span></div>
+    <button class="mobile-settings" type="button" aria-label="Settings" title="{{ t_settings }}" onclick="openSettings(event)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg></button>
+    <div class="mobile-summary"><span><b id="mobile-node-count">0</b> {% if lang == "zh" %}节点{% else %}nodes{% endif %}</span><span><b id="mobile-visits">0</b> {% if lang == "zh" %}访客条目{% else %}entries{% endif %}</span><span id="mobile-stream-status">{% if lang == "zh" %}连接中{% else %}CONNECTING{% endif %}</span></div>
+</header>
+<button id="immersive-toggle" type="button" aria-label="Enter immersive fullscreen" aria-pressed="false" title="{% if lang == "zh" %}沉浸式全屏{% else %}Immersive fullscreen{% endif %}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg><span>{% if lang == "zh" %}沉浸全屏{% else %}Fullscreen{% endif %}</span></button>
+
+<div id="map-container"><div id="map"></div></div>
+
+
+<header class="map-masthead desktop-only">
+    <div class="map-brand"><span class="brand-orbit">◎</span><div><strong>NEXUS</strong><span>{% if lang == "zh" %}全球访问 · 实时感知{% else %}GLOBAL TRAFFIC · LIVE{% endif %}</span></div></div>
+    <div class="map-live-pill"><i></i><span id="map-live-status">LIVE</span><span class="status-divider"></span><b id="map-node-count">0</b> {% if lang == "zh" %}节点{% else %}nodes{% endif %}</div>
+</header>
+<div class="map-tools" role="group" aria-label="Map controls">
+    <button onclick="map.zoomIn(.5)" aria-label="Zoom in" title="{% if lang == "zh" %}放大{% else %}Zoom in{% endif %}">+</button>
+    <button onclick="map.zoomOut(.5)" aria-label="Zoom out" title="{% if lang == "zh" %}缩小{% else %}Zoom out{% endif %}">−</button>
+    <span></span><button onclick="showWorldView()" aria-label="World view" title="{% if lang == "zh" %}世界全景{% else %}World view{% endif %}">◎</button>
+
+</div>
+<div class="map-caption desktop-only"><span class="live-line-key"></span>{% if lang == "zh" %}实时访问{% else %}LIVE ACCESS{% endif %}<span class="history-line-key"></span>{% if lang == "zh" %}历史路径{% else %}HISTORY{% endif %}<small>{% if lang == "zh" %}拖动探索 · 滚轮缩放{% else %}DRAG TO EXPLORE · SCROLL TO ZOOM{% endif %}</small></div>
+<nav class="map-dock desktop-only" aria-label="Main navigation">
+    <button id="nav-btn-map" class="active" onclick="switchDashMode('map')"><span>◎</span>{% if lang == "zh" %}实时地图{% else %}Map{% endif %}</button>
+    <button class="sidebar-btn" onclick="toggleSidebar(event)"><span>☷</span>{% if lang == "zh" %}访客{% else %}Visitors{% endif %}</button>
+    <button id="nav-btn-dash" onclick="switchDashMode(document.body.classList.contains('show-dashboard')?'map':'dashboard')"><span>▥</span>{% if lang == "zh" %}总览{% else %}Overview{% endif %}</button>
+    <button id="net-toggle-btn" onclick="toggleNetMenu()"><span>⌘</span>{% if lang == "zh" %}节点{% else %}Nodes{% endif %}</button>
+    <span class="dock-separator"></span>
+    <button onclick="startPlayback()"><span>▷</span>{% if lang == "zh" %}回放{% else %}Playback{% endif %}</button>
+    <button id="menu-toggle-btn" onclick="toggleRightMenu()" aria-controls="right-menu" aria-expanded="false"><span>☷</span>{% if lang == "zh" %}显示{% else %}Display{% endif %}</button>
+    <button onclick="openSettings(event)"><span>⚙</span>{% if lang == "zh" %}设置{% else %}Settings{% endif %}</button>
+</nav>
+<section id="cyber-dashboard" aria-label="Traffic overview" aria-hidden="true" inert>
+    <header class="overview-heading">
+        <div class="overview-title"><span class="dash-sidebar-logo">NEXUS <em>TRAFFIC ANALYTICS</em></span><h1>{% if lang == "zh" %}流量总览{% else %}Traffic overview{% endif %}</h1></div>
+        <div class="overview-actions"><span id="overview-status" role="status">LIVE</span><button type="button" onclick="openSettings(event)" aria-label="Overview settings">⚙</button><button id="overview-back" type="button" onclick="switchDashMode('map')" aria-label="Close overview">← <span>{% if lang == "zh" %}返回地图{% else %}Map{% endif %}</span></button></div>
+    </header>
+    <div class="dash-kpis"><div class="dash-kpi-card "><span class="dash-kpi-title">{% if lang == "zh" %}节点累计访问{% else %}Node visits{% endif %}</span><strong class="dash-kpi-value" id="kpi-total">0</strong><small>{% if lang == "zh" %}载入摘要 + 实时接收{% else %}Loaded summary + received visits{% endif %}</small></div>
+<div class="dash-kpi-card purple"><span class="dash-kpi-title">{% if lang == "zh" %}实时访问 / 秒{% else %}Live visits / s{% endif %}</span><strong class="dash-kpi-value" id="kpi-rate">0</strong><small>{% if lang == "zh" %}最近 5 秒平均频率{% else %}Average over the last 5 seconds{% endif %}</small></div>
+<div class="dash-kpi-card emerald"><span class="dash-kpi-title">{% if lang == "zh" %}实时活跃节点{% else %}Active nodes{% endif %}</span><strong class="dash-kpi-value" id="kpi-hubs">0</strong><small>{% if lang == "zh" %}最近 5 秒有访问{% else %}Accessed in the last 5 seconds{% endif %}</small></div>
+<div class="dash-kpi-card "><span class="dash-kpi-title">{% if lang == "zh" %}缓存访客条目{% else %}Cached visitor entries{% endif %}</span><strong class="dash-kpi-value" id="kpi-conn">0</strong><small>{% if lang == "zh" %}IP · 节点 · 访问目标{% else %}IP · node · destination{% endif %}</small></div>
+</div>
+    <div class="overview-grid">
+    <div class="globe-card" id="globe-card">
+        <div class="globe-heading"><span>◉ {% if lang == "zh" %}全球流量{% else %}GLOBAL TRAFFIC{% endif %}</span><span class="globe-live">● LIVE</span></div>
+        <div class="globe-view-controls">
+            <button id="globe-back-map" type="button" hidden>← {% if lang == "zh" %}原地图{% else %}Map{% endif %}</button>
+            <button id="globe-expand" type="button" aria-expanded="false" aria-label="Fullscreen globe">⛶ {% if lang == "zh" %}聚焦地球{% else %}Focus globe{% endif %}</button>
+        </div>
+        <div class="globe-zoom-controls" role="group" aria-label="Globe zoom">
+            <button id="globe-zoom-in" type="button" aria-label="Zoom globe in">+</button>
+            <button id="globe-zoom-out" type="button" aria-label="Zoom globe out">−</button>
+            <button id="globe-reset" type="button" aria-label="Reset globe view">◎</button>
+        </div>
+        <canvas id="traffic-globe" tabindex="0" role="img" aria-label="{% if lang == "zh" %}可拖动旋转的三维流量地球，方向键旋转{% else %}Rotating traffic globe. Drag or use arrow keys to rotate{% endif %}"></canvas>
+        <div class="globe-footer"><span id="globe-summary"></span><button id="globe-rotate" type="button" aria-pressed="true">Ⅱ {% if lang == "zh" %}暂停旋转{% else %}Pause rotation{% endif %}</button></div>
+        <small class="globe-hint">{% if lang == "zh" %}拖动旋转 · 滚轮 / 双指缩放 · 实时辉光{% else %}DRAG TO ROTATE · SCROLL / PINCH TO ZOOM{% endif %}</small>
+    </div>
+
+        <article class="dash-chart-card overview-live"><header class="overview-card-heading"><h2>{% if lang == "zh" %}实时访问频率{% else %}Live frequency{% endif %}</h2><span>60s</span></header><div class="overview-live-caption"><span id="overview-live-value">0 <small>/ s</small></span><small id="overview-peak"></small></div>
+        <svg id="overview-live-chart" viewBox="0 0 480 92" preserveAspectRatio="none" role="img" aria-label="{% if lang == "zh" %}最近 60 秒访问频率，每秒访问数{% else %}Visits per second over the last 60 seconds{% endif %}"><defs><linearGradient id="overview-trend-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#22d3ee" stop-opacity=".28"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></linearGradient></defs><path class="overview-grid-lines" d="M0 16H480 M0 52H480 M0 88H480"/><path class="overview-trend-area"/><path class="overview-trend-stroke"/></svg><div class="overview-axis"><span>−60s</span><span>−30s</span><span>{% if lang == "zh" %}现在{% else %}Now{% endif %}</span></div></article>
+        <article class="dash-chart-card overview-nodes"><header class="overview-card-heading"><h2>{% if lang == "zh" %}节点访问排行{% else %}Node ranking{% endif %}</h2><span>TOP 5</span></header><div id="overview-node-list" class="overview-ranking"></div><small class="overview-card-note">{% if lang == "zh" %}累计访问占比 · 亮点表示近期活跃{% else %}Share of node visits · light indicates recent activity{% endif %}</small></article>
+        <article class="dash-chart-card overview-history"><header class="overview-card-heading"><h2>{% if lang == "zh" %}访问时间分布{% else %}Visit timeline{% endif %}</h2><span id="overview-bin-size"></span></header><div class="dash-chart-container"><canvas id="dash-bar-chart" role="img" aria-label="{% if lang == "zh" %}最近 24 个时间段访问次数{% else %}Visits in the latest 24 time buckets{% endif %}"></canvas></div><small class="overview-card-note">{% if lang == "zh" %}所载入时段 · 最近 24 个时间段{% else %}Loaded period · latest 24 time buckets{% endif %}</small></article>
+        <article class="dash-chart-card overview-origins"><header class="overview-card-heading"><h2>{% if lang == "zh" %}访客来源分布{% else %}Visitor origins{% endif %}</h2><span>{% if lang == "zh" %}缓存摘要{% else %}CACHED{% endif %}</span></header><div class="dash-chart-container"><canvas id="dash-pie-chart" role="img" aria-label="{% if lang == "zh" %}缓存访客的来源访问占比{% else %}Origin shares of cached visits{% endif %}"></canvas><span class="overview-empty" id="overview-origins-empty" hidden>{% if lang == "zh" %}等待访客数据{% else %}Waiting for visitors{% endif %}</span></div><small class="overview-card-note" id="overview-cache-note"></small></article>
+        <article class="dash-chart-card overview-targets"><header class="overview-card-heading"><h2>{% if lang == "zh" %}热门访问目标{% else %}Top destinations{% endif %}</h2><span>TOP 5</span></header><div id="overview-target-list" class="overview-ranking"></div><small class="overview-card-note">{% if lang == "zh" %}当前缓存摘要 · 按访问次数{% else %}Current cached summary · by visit count{% endif %}</small></article>
+    </div>
+    <footer class="dash-sidebar-footer"><span id="overview-scope"></span><span id="overview-health"></span><span id="render-status" class="render-status">Adaptive rendering</span></footer>
+</section>
+
+<div class="ui-wrapper">
+
+    
+    <div class="left-net-menu desktop-only" id="left-net-menu">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.06);">
+            <span style="color:#f8fafc; font-weight:700; font-size:13px; letter-spacing:1px; display:flex; align-items:center; gap:8px;"><span style="color:#06b6d4">📡</span> 节点网络实时监控</span>
+            <button class="close-btn-x" onclick="toggleNetMenu(); event.stopPropagation();" style="width:26px;height:26px;font-size:14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">✖</button>
+        </div>
+        <div id="net-nodes-container" style="display:flex; flex-direction:column; gap:12px;"></div>
+    </div>
+    <aside class="top-ctrl" id="right-menu" aria-label="Map display options">
+        <header class="display-heading"><div><small>MAP APPEARANCE</small><h3 id="menu-title-text">{% if lang == "zh" %}地图显示{% else %}Map display{% endif %}</h3></div><button class="close-btn-x" onclick="toggleRightMenu();event.stopPropagation();" aria-label="Close display options">×</button></header>
+        <section class="mobile-quick-actions mobile-only">
+            <button type="button" aria-label="Playback" onclick="startPlayback()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 11 7-11 7Z M4 5v14"/></svg><span><b>{% if lang == "zh" %}历史回放{% else %}Playback{% endif %}</b><small>{% if lang == "zh" %}查看访问轨迹{% else %}Review traffic{% endif %}</small></span></button>
+            <button type="button" aria-label="Node settings" onclick="openSettings(event);switchTab('nodes',event)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6"/></svg><span><b>{% if lang == "zh" %}节点管理{% else %}Nodes{% endif %}</b><small>{% if lang == "zh" %}位置与运行状态{% else %}Locations & status{% endif %}</small></span></button>
+        </section>
+        <section class="menu-section"><h4>{% if lang == "zh" %}轨迹与气泡{% else %}Paths & bubbles{% endif %}</h4><div class="display-grid">
+            <button class="btn hist-path-btn" onclick="toggleHistPath()"></button>
+            <button class="btn cluster-btn" onclick="toggleClusterBubble()"></button>
+            <button class="btn showip-btn" onclick="toggleShowIp()">{{ t_ip_off }}</button>
+            <button class="btn follow-btn active-btn" onclick="toggleFollow()">{{ t_track_off }}</button>
+        </div></section>
+        <section class="menu-section"><h4>{% if lang == "zh" %}地图图层{% else %}Map layers{% endif %}</h4><div class="display-grid">
+            <button class="btn geo-btn" onclick="toggleGeo()">{{ t_geo_off }}</button>
+            <button class="btn fog-btn" onclick="toggleFog()">{{ t_fog_off }}</button>
+        </div></section>
+        <section class="menu-section"><h4>{% if lang == "zh" %}更多控制{% else %}More controls{% endif %}</h4><div class="display-grid">
+            <button class="btn" onclick="openSettings(event);switchTab('visuals',event)">{% if lang == "zh" %}✧ 光效参数{% else %}✧ Light effects{% endif %}</button>
+            <button class="btn freq-btn" onclick="showDomainStats()">{{ t_freq }}</button>
+            <button class="btn lang-btn" onclick="toggleLang()">🌐 中 / En</button>
+            <a href="__ADMIN_BASE__/users" class="btn logout-btn">{% if lang == "zh" %}用户与访问{% else %}Account & access{% endif %}</a>
+        </div></section>
+        <p class="menu-note">{% if lang == "zh" %}每次访问点亮路径，亮度随实时访问频率变化。{% else %}Every visit lights its path. Brightness follows live traffic.{% endif %}</p>
+    </aside>
+
+    <div id="playback-ctrl" class="cyber-playback-bar">
+        <div style="display:flex; align-items:center; gap:10px; flex-shrink: 0;">
+            <button class="danger-btn" style="padding:6px 12px; font-size:14px;" onclick="stopPlayback(event)" title="Stop">⏹️</button>
+            <button class="btn play-btn" id="pb-play-btn" style="padding:6px 12px; font-size:14px;" onclick="togglePlayPause(event)" title="Pause/Play">⏸️</button>
+            <select id="pb-speed" class="cyber-select" style="border-color:#10b981; color:#10b981; padding:6px 8px;">
+                <option value="400">0.5x</option><option value="200" selected>1.0x</option><option value="100">2.0x</option>
+                <option value="40">5.0x</option><option value="25">8.0x</option><option value="20">10.0x</option><option value="4">50x</option><option value="2">100x</option>
+            </select>
+        </div>
+        <div style="display:flex; flex-direction:column; min-width:180px; flex: 1;">
+            <div style="display:flex; justify-content:space-between; font-size:12px; font-family:monospace; line-height:1; margin-bottom: 8px;">
+                <span id="pb-current-node" style="color:#06b6d4; font-weight:600; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">---</span>
+                <span id="pb-current" style="color:#f59e0b; font-weight:600;">Waiting...</span>
+            </div>
+            <input type="range" id="pb-slider" class="opacity-slider" min="0" max="100" value="0" style="width:100%; accent-color:#f59e0b; height: 6px;">
+        </div>
+    </div>
+
+    <div style="flex: 1;"></div>
+    <div id="resizer" class="desktop-only" title="Double click to collapse" ondblclick="toggleCollapse()"></div>
+
+    {{ mobile_overlay|safe }}
+
+    <div class="panel" id="data-panel">
+        {{ mobile_controls|safe }}
+        <div class="top-bar-wrap">
+            <div class="top-bar">
+                <div class="title-group">
+                    <h2 style="margin:0; font-size:17px; font-weight:700; letter-spacing:-0.3px; background:linear-gradient(135deg,#06b6d4,#8b5cf6); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">
+                        <span class="desktop-only">{{ t_net }}</span><span class="mobile-only mobile-visitor-title">{% if lang == "zh" %}访客活动{% else %}Visitor activity{% endif %}</span><span id="playback-badge" style="display:none; font-size:11px; font-weight:600; letter-spacing:1px; vertical-align:middle; margin-left:10px; padding:4px 10px; background:rgba(244,63,94,0.1); border:1px solid rgba(244,63,94,0.3); border-radius:100px; color:#fb7185; animation:p-edge 2s infinite;">[ ⏪ Playback ]</span>
+                    </h2>
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <div class="visitor-preferences">
+                            <button id="visitor-options-button" class="cyber-select" type="button" aria-expanded="false" aria-controls="visitor-options">◐ {% if lang == "zh" %}透明度{% else %}Opacity{% endif %}</button>
+                            <div id="visitor-options" class="visitor-options" hidden>
+                                <strong>{% if lang == "zh" %}访客显示{% else %}Visitor appearance{% endif %}</strong>
+                                <label for="panel-opacity">{% if lang == "zh" %}访客面板{% else %}Visitor panel{% endif %}<output id="panel-opacity-value">85%</output></label>
+                                <input type="range" id="panel-opacity" min="0" max="1" step="0.05" value="0.85">
+                                <label for="visitor-opacity">{% if lang == "zh" %}地图访客气泡{% else %}Visitor lights & bubbles{% endif %}<output id="visitor-opacity-value">100%</output></label>
+                                <input type="range" id="visitor-opacity" min="0" max="1" step="0.05" value="1">
+                            </div>
+                        </div>
+                        <select id="sort-sel" class="cyber-select" onchange="changeSort(this.value)">
+                            <option value="time">⏳ {{ t_time_sort }}</option>
+                            <option value="freq">🔥 {{ t_freq_sort }}</option>
+                        </select>
+                        <select id="time-sel" class="cyber-select" style="color:#10b981; border-color:#10b981;" onchange="applyFilters()">
+                            <option value="0">{{ t_realtime }}</option><option value="0.0417">🟢 1h</option>
+                            <option value="1" selected>⏱️ 24h</option><option value="7">⏱️ 7d</option><option value="30">⏱️ 30d</option>
+                        </select>
+                        <div class="multi-sel-container">
+                            <button class="multi-sel-btn" onclick="this.nextElementSibling.classList.toggle('show'); event.preventDefault();">
+                                <span class="btn-text" style="max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle;">⚡ {{ sel_count }}</span> <span style="font-size:10px;">▼</span>
+                            </button>
+                            <div class="multi-sel-menu">
+                                {{ cb_html|safe }}
+                                <button class="apply-btn" onclick="applyFilters(true, event)">{{ t_apply }}</button>
+                            </div>
+                        </div>
+                    </div>
+                    <span id="ws-tag" style="color:#f87171; margin-left:auto;">● CONNECTING...</span>
+                    <button id="close-sidebar" onclick="toggleSidebar(event)">✖</button>
+                </div>
+                <div class="hm-box" id="hm-box"><canvas id="hm-chart"></canvas></div>
+            </div>
+        </div>
+        
+        <div class="data-scope-note" id="data-scope-note">{% if lang == "zh" %}最近访客摘要{% else %}Recent visitor summary{% endif %}</div>
+        <div class="panel-content" id="scroll-container">
+            <div class="v-header">
+                <div class="v-col c-node">{{ t_node }}</div>
+                <div class="v-col c-ip">{{ t_ip }}</div>
+                <div class="v-col c-loc">{{ t_loc }}</div>
+                <div class="v-col c-hits">{{ t_hits }}</div>
+                <div class="v-col c-lang hide-mobile">{{ t_lang }}</div>
+                <div class="v-col c-time">{{ t_time }}</div>
+            </div>
+            <div style="position: relative; width: 100%;">
+                <div id="scroll-spacer" style="width: 100%; position: absolute; top: 0; left: 0; pointer-events: none;"></div>
+                <div id="scroll-content" style="width: 100%; position: absolute; top: 0; left: 0; will-change: transform;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ mobile_fab|safe }}
+
+<div id="domain-modal" class="domain-panel">
+    <div class="modal-header">
+        <h3 style="background:linear-gradient(135deg,#f59e0b,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">{{ t_freq }} (L7)</h3>
+        <button class="close-btn-x" onclick="document.getElementById('domain-modal').style.display='none'; event.preventDefault();">✖</button>
+    </div>
+    <div style="padding:10px 20px; font-size:12px; color:#64748b; border-bottom:1px solid rgba(255,255,255,0.05);" id="domain-time-label"></div>
+    <div class="modal-body" id="domain-list" style="padding:0;"></div>
+</div>
+
+<div id="quota-modal" class="cyber-modal" style="width: 400px; max-width: 90vw; transform: translate(-50%, -50%);">
+    <div class="modal-header">
+        <h3>⚙️ 配置节点配额</h3>
+        <button class="close-btn-x" onclick="document.getElementById('quota-modal').style.display='none'">✖</button>
+    </div>
+    <div class="modal-body" style="padding: 20px;">
+        <input type="hidden" id="quota-ip">
+        <div style="margin-bottom:15px;">
+            <label style="color:#cbd5e1;font-size:13px;display:block;margin-bottom:5px;">目标节点 IP</label>
+            <input type="text" id="quota-ip-display" disabled style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.3); border-color:#334155;">
+        </div>
+        <div style="margin-bottom:15px;">
+            <label style="color:#cbd5e1;font-size:13px;display:block;margin-bottom:5px;">总月流量限制 (GB) <span style="color:#94a3b8;font-size:11px;">[设为0则无限制]</span></label>
+            <input type="number" id="quota-gb" step="0.01" min="0" style="width:100%; box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:15px;">
+            <label style="color:#cbd5e1;font-size:13px;display:block;margin-bottom:5px;">流量清零重置日 (1-31)</label>
+            <input type="number" id="quota-reset" min="1" max="31" style="width:100%; box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:25px;">
+            <label style="color:#cbd5e1;font-size:13px;display:block;margin-bottom:5px;">剩余流量计算模式</label>
+            <select id="quota-mode" class="cyber-select" style="width:100%; box-sizing:border-box;">
+                <option value="total">计算总量 (上行+下行)</option>
+                <option value="rx_only">只计算下行 (下载)</option>
+                <option value="tx_only">只计算上行 (上传)</option>
+            </select>
+        </div>
+        <button class="primary-btn" style="width:100%; padding:12px;" onclick="submitQuota()">💾 保存配额配置</button>
+    </div>
+</div>
+
+<div id="correction-modal" class="cyber-modal" style="width: 400px; max-width: 90vw; transform: translate(-50%, -50%);">
+    <div class="modal-header">
+        <h3>✏️ 手动校正节点流量</h3>
+        <button class="close-btn-x" onclick="document.getElementById('correction-modal').style.display='none'">✖</button>
+    </div>
+    <div class="modal-body" style="padding: 20px;">
+        <input type="hidden" id="corr-ip">
+        <div style="margin-bottom:15px;">
+            <label style="color:#cbd5e1;font-size:13px;display:block;margin-bottom:5px;">目标节点 IP</label>
+            <input type="text" id="corr-ip-display" disabled style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.3); border-color:#334155;">
+        </div>
+        <div style="margin-bottom:15px;">
+            <label style="color:#cbd5e1;font-size:13px;display:block;margin-bottom:5px;">当前已使用流量 (GB)</label>
+            <input type="number" id="corr-gb" step="0.01" min="0" style="width:100%; box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:25px;">
+            <label style="color:#cbd5e1;font-size:13px;display:block;margin-bottom:5px;">校正目标类型</label>
+            <select id="corr-type" class="cyber-select" style="width:100%; box-sizing:border-box;">
+                <option value="total">更新总量 (覆盖为下行,上行清零)</option>
+                <option value="rx">仅更新下行 (RX)</option>
+                <option value="tx">仅更新上行 (TX)</option>
+            </select>
+        </div>
+        <button class="danger-btn" style="width:100%; padding:12px;" onclick="submitCorrection()">⚠️ 确认强制校正</button>
+    </div>
+</div>
+
+<div id="settings-backdrop" hidden></div>
+<div id="settings-modal" class="cyber-modal" role="dialog" aria-modal="true" aria-label="Settings" tabindex="-1">
+    <div class="modal-header">
+        <h3>⚙️ {{ t_settings }}</h3>
+        <button class="close-btn-x" onclick="closeSettings(event)">✖</button>
+    </div>
+    <div class="modal-body">
+        <div class="tab-btns">
+            <button class="tab-btn" onclick="switchTab('data-manage', event); loadRetention();">💾 储存管理</button>
+            <button class="tab-btn active" onclick="switchTab('system-config', event)">⚙️ 系统模式</button>
+            <button class="tab-btn" onclick="switchTab('map-config', event)">🗺️ 地图密钥</button>
+            <button class="tab-btn" onclick="switchTab('keys', event)">🔑 API Keys</button>
+            <button class="tab-btn" onclick="switchTab('nodes', event)">🖥️ Nodes</button>
+            <button class="tab-btn" onclick="switchTab('suspended', event)">⏳ 挂起节点</button>
+            <button class="tab-btn" onclick="switchTab('visuals', event)">{{ t_visuals }}</button>
+            <button class="tab-btn" onclick="switchTab('account', event)">👤 Account</button>
+        </div>
+        
+        <div id="data-manage" class="tab-content">
+            <p style="color:#94a3b8;font-size:13px; margin-top:0;">自定义时序数据的储存与自动清理周期（最长支持30天）。</p>
+            <div style="background:rgba(30,41,59,0.4); padding:18px; border-radius:8px; border:1px solid rgba(255,255,255,0.05); margin-bottom:20px;">
+                <label style="display:block;color:#06b6d4;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;font-weight:600;">自动保留周期</label>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <select id="auto-retention-sel" class="cyber-select" style="flex:1; max-width:200px;">
+                        <option value="1">1 天 (24h)</option>
+                        <option value="3">3 天</option>
+                        <option value="7">7 天</option>
+                        <option value="15">15 天</option>
+                        <option value="30">30 天 (最大限制)</option>
+                    </select>
+                    <button class="primary-btn" onclick="saveRetention()">💾 保存清理设置</button>
+                </div>
+            </div>
+            
+            <p style="color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-top:0;margin-bottom:12px;font-weight:600;">手动立即清理</p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06);">
+                <button class="danger-btn" onclick="manualClean(1)">清理 1天前 数据</button>
+                <button class="danger-btn" onclick="manualClean(3)">清理 3天前 数据</button>
+                <button class="danger-btn" onclick="manualClean(7)">清理 7天前 数据</button>
+                <div style="width:100%; height:1px; background:rgba(255,255,255,0.05); margin:5px 0;"></div>
+                <button class="danger-btn" style="background:rgba(239,68,68,0.2); border-color:#ef4444; color:#fca5a5;" onclick="manualClean(-1)">⚠️ 清空所有历史记录</button>
+            </div>
+        </div>
+
+        <div id="system-config" class="tab-content active">
+            <p style="color:#94a3b8;font-size:13px; margin-top:0;">配置 IP 解析数据来源引擎（全局实时生效）</p>
+            <div style="display:flex;gap:15px;margin-top:15px;margin-bottom:20px;">
+                <button id="btn_mode_local" onclick="switchIpMode('LocalDb')" style="flex:1;padding:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:#cbd5e1;border-radius:14px;cursor:pointer;transition:all 0.3s;outline:none;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;">
+                    ⚡ 模式一：极速离线数据库
+                </button>
+                <button id="btn_mode_api" onclick="switchIpMode('HttpApi')" style="flex:1;padding:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:#cbd5e1;border-radius:14px;cursor:pointer;transition:all 0.3s;outline:none;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;">
+                    🌐 模式二：实时外部 HTTP API
+                </button>
+            </div>
+            <p style="font-size:13px;color:#94a3b8;line-height:1.8;background:rgba(255,255,255,0.02);padding:18px;border-radius:14px;border-left:3px solid #06b6d4;border:1px solid rgba(255,255,255,0.05);border-left:3px solid #06b6d4;">
+                <b>离线模式</b>：依赖本地 GeoLite2-City 库，解析耗时微秒级，抗并发能力无上限，完全免费。<br><br>
+                <b>HTTP API</b>：依赖外部接口 (示例: ip-api.com)，精准度极高但存在网络延迟与限流风险，网络失败时将自动降级回离线库。
+            </p>
+        </div>
+
+        <div id="map-config" class="tab-content">
+            <p style="color:#94a3b8;font-size:13px; margin-top:0;">配置与检测地图底图服务的 API Key（用于去除 <code>API KEY REQUIRED</code> 水印）。</p>
+
+            <div id="map-key-status-box" style="background:rgba(30,41,59,0.4); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <span style="font-size:13px; font-weight:700; color:#f8fafc; display:flex; align-items:center; gap:8px;">
+                        <span id="map-status-dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#f59e0b;"></span>
+                        当前底图状态
+                    </span>
+                    <span id="map-status-badge" style="font-size:11px; font-weight:600; padding:3px 10px; border-radius:100px; background:rgba(245,158,11,0.1); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);">
+                        检测中...
+                    </span>
+                </div>
+                <div id="map-status-desc" style="font-size:12px; color:#94a3b8; line-height:1.6;">
+                    正在读取环境变量及本地设置...
+                </div>
+            </div>
+
+            <div style="background:rgba(6,182,212,0.04); border:1px solid rgba(6,182,212,0.2); border-left:3px solid #06b6d4; padding:18px; border-radius:14px; margin-bottom:20px;">
+                <div style="color:#06b6d4; font-size:13px; font-weight:700; margin-bottom:8px;">🚀 永久生效方式：直接在 .env 中设置密钥（推荐）</div>
+                <div style="font-size:12px; color:#cbd5e1; line-height:1.8;">
+                    <b>步骤 1：免费获取密钥</b><br>
+                    CARTO 官方为个人与商业用户提供每月 500 万次瓦片请求的免费额度，无需信用卡：<br>
+                    <a href="https://carto.com/basemaps/apikey" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline; font-weight:600; word-break:break-all;">👉 点击前往 carto.com/basemaps/apikey 免费申请密钥</a><br><br>
+                    <b>步骤 2：写入 .env 配置文件</b><br>
+                    在项目根目录的 <code>.env</code> 文件中添加（或修改）以下变量：
+                    <pre style="background:rgba(0,0,0,0.4); padding:10px 14px; border-radius:8px; margin:8px 0; color:#4ade80; font-family:'SF Mono',monospace; font-size:12px; user-select:all;">CARTO_API_KEY=你的CARTO密钥</pre>
+                    <b>步骤 3：重启 Docker 容器即可生效</b>
+                    <pre style="background:rgba(0,0,0,0.4); padding:10px 14px; border-radius:8px; margin:8px 0; color:#38bdf8; font-family:'SF Mono',monospace; font-size:12px; user-select:all;">docker compose down &amp;&amp; docker compose up -d</pre>
+                </div>
+            </div>
+
+            <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06);">
+                <label style="display:block; color:#a855f7; font-size:12px; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; font-weight:600;">⚡ 前端即时生效测试 (无需重启容器)</label>
+                <p style="font-size:12px; color:#94a3b8; margin-top:0; margin-bottom:12px;">在此粘贴申请到的 CARTO 密钥可立即在浏览器中热重载底图，用于快速测试密钥是否有效：</p>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <input type="text" id="live-carto-key-input" placeholder="输入 CARTO API Key 测试" style="flex:1; min-width:240px;">
+                    <button class="primary-btn" onclick="applyLiveMapKey()" style="padding:10px 16px;">⚡ 立即测试生效</button>
+                    <button class="danger-btn" onclick="clearLiveMapKey()" style="padding:10px 14px;">重置测试</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="keys" class="tab-content">
+            <p style="color:#94a3b8;font-size:13px; margin-top:0;">Header: <code style="color:#06b6d4; background:rgba(6,182,212,0.08); border:1px solid rgba(6,182,212,0.2); padding:4px 10px; border-radius:8px; font-family:'SF Mono',monospace;">Authorization: Bearer &lt;Token&gt;</code></p>
+            <button onclick="genKey(event)" class="primary-btn" style="margin-bottom:20px;">+ New Key</button>
+            <table id="api-keys-table"><thead><tr><th>Token</th><th>Created</th><th>Action</th></tr></thead><tbody id="keys-tbody">{{ key_rows|safe }}</tbody></table>
+        </div>
+        
+        <div id="nodes" class="tab-content">
+            <p style="color:#f59e0b;font-size:12px;font-weight:600;margin-top:0;padding:12px 16px;background:rgba(245,158,11,0.08);border-radius:10px;border-left:3px solid #f59e0b;">⚠️ {{ t_warn_node }}</p>
+            <p id="node-presence-summary" class="node-presence-summary" role="status"></p>
+            <table><thead><tr><th>Node ID</th><th>Geo</th><th>Name</th><th>Action</th><th>状态 / Status</th></tr></thead><tbody id="nodes-tbody">{{ node_rows|safe }}</tbody></table>
+        </div>
+
+        <div id="suspended" class="tab-content">
+            <p style="color:#94a3b8;font-size:13px; margin-top:0;">被删除或未识别的活跃节点将被隔离在此处，它们不会干扰主地图和统计数据。</p>
+            <table>
+                <thead><tr><th>节点名称/IP</th><th>拦截次数</th><th>操作</th></tr></thead>
+                <tbody id="suspended-list"><tr><td colspan="3" style="text-align:center; padding:20px; color:#64748b;">暂无挂起节点</td></tr></tbody>
+            </table>
+        </div>
+
+        <div id="visuals" class="tab-content" style="max-width: 600px;">
+            <p style="color:#94a3b8;font-size:13px; margin-top:0; margin-bottom:20px;">{{ t_visuals_desc }}</p>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#a855f7;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>IP 气泡大小 (Bubble)</span> <span id="bubble-size-val">11px</span></label>
+                    <input type="range" id="bubble-size-slider" class="opacity-slider" style="width:100%; accent-color:#a855f7;" min="8" max="22" step="1" value="11" oninput="updateLocalVisuals()">
+                </div>
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#06b6d4;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;font-weight:600;"><span>访客起点圆点 (Core Dot)</span> <span id="visitor-dot-val">4px</span></label>
+                    <input type="range" id="visitor-dot-slider" class="opacity-slider" style="width:100%; accent-color:#06b6d4;" min="0" max="15" step="1" value="4" oninput="updateLocalVisuals()">
+                </div>
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); grid-column: span 2;">
+                    <label style="display:flex;justify-content:space-between;color:#10b981;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>访客扩散光圈 (Halo Size)</span> <span id="halo-size-val">40px</span></label>
+                    <input type="range" id="halo-size-slider" class="opacity-slider" style="width:100%; accent-color:#10b981;" min="10" max="150" step="5" value="40" oninput="updateLocalVisuals()">
+                </div>
+                
+                <div hidden style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#fcd34d;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>{% if lang == "zh" %}虚线段长度{% else %}Dash length{% endif %}</span> <span id="dash-length-val">{{ dash_length }}px</span></label>
+                    <input type="range" id="dash-length-slider" class="opacity-slider" style="width:100%; accent-color:#fcd34d;" min="1.0" max="150.0" step="1.0" value="{{ dash_length }}" oninput="updateVisuals()">
+                </div>
+                <div hidden style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#fb923c;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>{% if lang == "zh" %}虚线间隔{% else %}Dash gap{% endif %}</span> <span id="dash-gap-val">{{ dash_gap }}px</span></label>
+                    <input type="range" id="dash-gap-slider" class="opacity-slider" style="width:100%; accent-color:#fb923c;" min="1.0" max="300.0" step="1.0" value="{{ dash_gap }}" oninput="updateVisuals()">
+                </div>
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#a855f7;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>{{ t_init_thick }}</span> <span id="init-thick-val">{{ init_thick }}px</span></label>
+                    <input type="range" id="init-thick-slider" class="opacity-slider" style="width:100%; accent-color:#a855f7;" min="0.5" max="10.0" step="0.5" value="{{ init_thick }}" oninput="updateVisuals()">
+                </div>
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#ec4899;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>{{ t_res_thick }}</span> <span id="res-thick-val">{{ res_thick }}px</span></label>
+                    <input type="range" id="res-thick-slider" class="opacity-slider" style="width:100%; accent-color:#ec4899;" min="0.1" max="5.0" step="0.1" value="{{ res_thick }}" oninput="updateVisuals()">
+                </div>
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#06b6d4;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;font-weight:600;"><span>{{ t_dyn_bright }}</span> <span id="dyn-bright-val">{{ dyn_bright }}</span></label>
+                    <input type="range" id="dyn-bright-slider" class="opacity-slider" style="width:100%" min="1.0" max="10.0" step="0.5" value="{{ dyn_bright }}" oninput="updateVisuals()">
+                </div>
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#10b981;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>{{ t_res_bright }}</span> <span id="res-bright-val">{{ res_bright }}</span></label>
+                    <input type="range" id="res-bright-slider" class="opacity-slider" style="width:100%" min="1.0" max="10.0" step="0.5" value="{{ res_bright }}" oninput="updateVisuals()">
+                </div>
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#f59e0b;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>{{ t_res_time }}</span> <span id="res-time-val">{{ res_time }}s</span></label>
+                    <input type="range" id="res-time-slider" class="opacity-slider" style="width:100%; accent-color:#f59e0b;" min="0.5" max="15.0" step="0.5" value="{{ res_time }}" oninput="updateVisuals()">
+                </div>
+                <div style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); transition:border-color 0.3s;">
+                    <label style="display:flex;justify-content:space-between;color:#6366f1;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;font-weight:600;"><span>{{ t_init_speed }}</span> <span id="init-speed-val">{{ init_speed }}s</span></label>
+                    <input type="range" id="init-speed-slider" class="opacity-slider" style="width:100%; accent-color:#6366f1;" min="0.05" max="2.0" step="0.05" value="{{ init_speed }}" oninput="updateVisuals()">
+                </div>
+                <div hidden style="background:rgba(255,255,255,0.02); padding:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); grid-column: span 2;">
+                    <label style="display:flex;justify-content:space-between;color:#34d399;font-size:13px;margin-bottom:12px;font-weight:bold;"><span>{{ t_anim_speed }}</span> <span id="anim-speed-val">{{ anim_speed }}s</span></label>
+                    <input type="range" id="anim-speed-slider" class="opacity-slider" style="width:100%; accent-color:#34d399;" min="0.1" max="5.0" step="0.1" value="{{ anim_speed }}" oninput="updateVisuals()">
+                </div>
+            </div>
+            <button class="primary-btn" style="width:100%; margin-top:20px; padding:12px;" onclick="resetVisuals(event)">{{ t_reset_visuals }}</button>
+        </div>
+
+        <div id="account" class="tab-content">
+            <p style="color:#94a3b8;font-size:13px;">在独立账号中心管理本地账号、Google 登录与访问权限。</p>
+            <a href="__ADMIN_BASE__/users" class="primary-btn" style="display:inline-block;padding:12px 20px;border-radius:10px;">打开用户与访问 →</a>
+        </div>
+    </div>
+</div>
+
+<div id="toast-container"></div>
+
+<div id="map-key-warning-pill" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999; background:rgba(15,23,42,0.92); backdrop-filter:blur(20px); border:1px solid rgba(245,158,11,0.4); box-shadow:0 12px 32px rgba(0,0,0,0.6), 0 0 20px rgba(245,158,11,0.15); border-radius:100px; padding:8px 18px; align-items:center; gap:12px; font-size:12px; color:#f8fafc;">
+    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#f59e0b; box-shadow:0 0 8px #f59e0b;"></span>
+    <span style="color:#e2e8f0; font-weight:500;">⚠️ 地图底图未配置密钥，可能显示 "API KEY REQUIRED" 水印</span>
+    <button onclick="openMapConfigModal(event)" style="background:rgba(245,158,11,0.2); border:1px solid #f59e0b; color:#fbbf24; border-radius:20px; padding:3px 12px; font-size:11px; font-weight:600; cursor:pointer;">立即配置</button>
+    <button onclick="dismissMapKeyPill(event)" style="background:none; border:none; color:#64748b; font-size:14px; cursor:pointer; padding:0 4px;" title="不再提示">✕</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://unpkg.com/@msgpack/msgpack"></script>
+
+<script>
+    const isMobile = matchMedia('(max-width: 768px), (max-height: 500px) and (orientation: landscape)').matches;
+    {{ coastline_js|safe }}
+    {{ runtime_js|safe }}
+    {{ controller_js|safe }}
+    {{ route_js|safe }}
+    
+    function updateLocalVisuals() {
+        const bSize = document.getElementById('bubble-size-slider').value;
+        if(document.getElementById('bubble-size-val')) document.getElementById('bubble-size-val').innerText = bSize + 'px';
+        document.documentElement.style.setProperty('--ip-bubble-size', bSize + 'px');
+        localStorage.setItem('ip_bubble_size', bSize);
+
+        const dotSize = document.getElementById('visitor-dot-slider').value;
+        if(document.getElementById('visitor-dot-val')) document.getElementById('visitor-dot-val').innerText = dotSize + 'px';
+        document.documentElement.style.setProperty('--visitor-dot-size', dotSize + 'px');
+        localStorage.setItem('visitor_dot_size', dotSize);
+
+        const hSize = document.getElementById('halo-size-slider').value;
+        if(document.getElementById('halo-size-val')) document.getElementById('halo-size-val').innerText = hSize + 'px';
+        document.documentElement.style.setProperty('--halo-size', hSize + 'px');
+        localStorage.setItem('halo_size', hSize);
+        window.currentHaloSize = Number(hSize);
+        window.currentVisitorDotSize = Number(dotSize);
+        window.TrajectoryPool?.wake();
+    }
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        const savedBSize = localStorage.getItem('ip_bubble_size') || 11;
+        document.documentElement.style.setProperty('--ip-bubble-size', savedBSize + 'px');
+        if (document.getElementById('bubble-size-slider')) document.getElementById('bubble-size-slider').value = savedBSize;
+        if (document.getElementById('bubble-size-val')) document.getElementById('bubble-size-val').innerText = savedBSize + 'px';
+
+        const savedDotSize = localStorage.getItem('visitor_dot_size') || 4;
+        window.currentVisitorDotSize = Number(savedDotSize);
+        document.documentElement.style.setProperty('--visitor-dot-size', savedDotSize + 'px');
+        if (document.getElementById('visitor-dot-slider')) document.getElementById('visitor-dot-slider').value = savedDotSize;
+        if (document.getElementById('visitor-dot-val')) document.getElementById('visitor-dot-val').innerText = savedDotSize + 'px';
+
+        const savedHaloSize = localStorage.getItem('halo_size') || 40;
+        window.currentHaloSize = Number(savedHaloSize);
+        document.documentElement.style.setProperty('--halo-size', savedHaloSize + 'px');
+        if (document.getElementById('halo-size-slider')) document.getElementById('halo-size-slider').value = savedHaloSize;
+        if (document.getElementById('halo-size-val')) document.getElementById('halo-size-val').innerText = savedHaloSize + 'px';
+    });
+    
+    function fixZeroPos(lat, lon) {
+        let fLat = parseFloat(lat) || 0;
+        let fLon = parseFloat(lon) || 0;
+        if (fLat === 0 && fLon === 0) return [39.9042, 116.4074]; 
+        return [fLat, fLon];
+    }
+
+    async function loadRetention() {
+        try {
+            let res = await fetch('__ADMIN_BASE__/api/settings/retention');
+            if (res.ok) {
+                let data = await res.json();
+                let sel = document.getElementById('auto-retention-sel');
+                if(sel) sel.value = data.days;
+            }
+        } catch(e) {}
+    }
+
+    async function saveRetention() {
+        let days = parseInt(document.getElementById('auto-retention-sel').value) || 30;
+        try {
+            let res = await fetch('__ADMIN_BASE__/api/settings/retention', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ days: days })
+            });
+            if (res.ok) {
+                let msg = await res.text();
+                alert(msg);
+            } else { alert('❌ 保存失败，可能未获授权。'); }
+        } catch(e) { alert('❌ 网络或系统异常'); }
+    }
+
+    async function manualClean(days) {
+        let msg = days === -1 
+            ? "⚠️ 终极警告：确定要彻底清空所有的时序追踪数据吗？此操作将不可逆！" 
+            : `确定要手动清理并永久删除 ${days} 天以前的历史数据吗？`;
+        if (!confirm(msg)) return;
+        
+        try {
+            let res = await fetch('__ADMIN_BASE__/api/data/clean', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ days: days })
+            });
+            if (res.ok) {
+                let text = await res.text();
+                alert(text);
+                location.reload(); 
+            } else { alert('❌ 清理失败'); }
+        } catch(e) { alert('❌ 发生异常，无法连接到节点'); }
+    }
+
+    let nodeQuotaData = null;
+    try {
+        nodeQuotaData = JSON.parse('{{ node_quota_json|safe }}');
+    } catch(e) {
+        nodeQuotaData = {};
+    }
+
+    function formatSpeed(bps) {
+        if (bps >= 1024 * 1024 * 1024) return (bps / (1024 * 1024 * 1024)).toFixed(2) + ' GB/s';
+        if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(2) + ' MB/s';
+        if (bps >= 1024) return (bps / 1024).toFixed(2) + ' KB/s';
+        return bps + ' B/s';
+    }
+
+    function formatBytes(bytes) {
+        if (bytes >= 1024 * 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2) + ' TB';
+        if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        if (bytes >= 1024) return (bytes / 1024).toFixed(2) + ' KB';
+        return bytes + ' B';
+    }
+
+    function toggleNetMenu() {
+        document.getElementById('left-net-menu').classList.toggle('open');
+        if (document.getElementById('left-net-menu').classList.contains('open')) {
+            renderNetNodes();
+        }
+    }
+
+    function renderNetNodes() {
+        const container = document.getElementById('net-nodes-container');
+        if (!container) return;
+        const nodeIps = Object.keys(nodeQuotaData);
+        if (nodeIps.length === 0) {
+            container.innerHTML = '<div style="color:#64748b; font-size:13px; text-align:center;">暂无节点数据</div>';
+            return;
+        }
+
+        let html = '';
+        nodeIps.forEach(ip => {
+            const data = nodeQuotaData[ip];
+            const displayName = data.name || ip;
+            
+            let usedBytes = 0;
+            if(data.mode === 'rx_only') usedBytes = data.rx_bytes;
+            else if(data.mode === 'tx_only') usedBytes = data.tx_bytes;
+            else usedBytes = data.rx_bytes + data.tx_bytes;
+
+            let quotaBytes = data.quota_bytes;
+            let percent = quotaBytes > 0 ? Math.min((usedBytes / quotaBytes) * 100, 100).toFixed(1) : 0;
+            let progressColor = percent > 90 ? '#ef4444' : (percent > 75 ? '#f59e0b' : '#10b981');
+            const safeIp = ip.replace(/[^a-zA-Z0-9]/g, '-');
+
+            html += `
+            <div style="background:rgba(255,255,255,0.025); padding:16px; border-radius:16px; border:1px solid rgba(255,255,255,0.07); transition:border-color 0.3s, background 0.3s; position:relative; overflow:hidden;" onmouseenter="this.style.borderColor='rgba(255,255,255,0.12)'; this.style.background='rgba(255,255,255,0.04)';" onmouseleave="this.style.borderColor='rgba(255,255,255,0.07)'; this.style.background='rgba(255,255,255,0.025)';">
+                <div style="display:flex; justify-content:space-between; margin-bottom:12px; align-items:center;">
+                    <strong style="color:#f8fafc; font-size:13px; font-family:'SF Mono',monospace; font-weight:600; letter-spacing:-0.3px;" title="节点 IP: ${escHtml(ip)}">${escHtml(displayName)}</strong>
+                    <div style="display:flex; gap:6px;">
+                        <button onclick="openCorrectionModal(decodeURIComponent('${encodeURIComponent(ip).replace(/'/g,"%27")}'))" style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.25); border-radius:8px; cursor:pointer; color:#f59e0b; padding:4px 8px; font-size:11px; transition:background 0.2s;" onmouseenter="this.style.background='rgba(245,158,11,0.2)';" onmouseleave="this.style.background='rgba(245,158,11,0.1)';" title="校正已用流量">✏️</button>
+                        <button onclick="openQuotaModal(decodeURIComponent('${encodeURIComponent(ip).replace(/'/g,"%27")}'))" style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); border-radius:8px; cursor:pointer; color:#10b981; padding:4px 8px; font-size:11px; transition:background 0.2s;" onmouseenter="this.style.background='rgba(16,185,129,0.2)';" onmouseleave="this.style.background='rgba(16,185,129,0.1)';" title="配置月度配额">⚙️</button>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:12px; padding:10px 14px; background:rgba(0,0,0,0.2); border-radius:10px; border:1px solid rgba(255,255,255,0.04);">
+                    <span style="display:flex; flex-direction:column; gap:3px;">
+                        <span style="color:#64748b; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">⬇ RX</span>
+                        <span id="rx-spd-${safeIp}" style="color:#4ade80; font-family:'SF Mono',monospace; font-weight:700; font-size:13px; transition:color 0.3s;">${formatSpeed(data.rx_speed||0)}</span>
+                    </span>
+                    <span style="display:flex; flex-direction:column; gap:3px; text-align:right;">
+                        <span style="color:#64748b; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">⬆ TX</span>
+                        <span id="tx-spd-${safeIp}" style="color:#06b6d4; font-family:'SF Mono',monospace; font-weight:700; font-size:13px; transition:color 0.3s;">${formatSpeed(data.tx_speed||0)}</span>
+                    </span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:11px; color:#475569; margin-bottom:10px;">
+                    <span>模式: <span style="color:#94a3b8;">${data.mode === 'rx_only' ? '仅下行' : data.mode === 'tx_only' ? '仅上行' : '总量'}</span></span>
+                    <span>重置: <span style="color:#94a3b8;">每月 ${data.reset_day} 日</span></span>
+                </div>
+                <div style="height:5px; background:rgba(255,255,255,0.06); border-radius:5px; overflow:hidden; margin-bottom:8px;">
+                    <div style="height:100%; width:${percent}%; background:${progressColor}; border-radius:5px; transition:width 0.6s cubic-bezier(0.16,1,0.3,1); box-shadow:0 0 8px ${progressColor};"></div>
+                </div>
+                <div style="font-size:11px; color:#475569; display:flex; justify-content:space-between;">
+                    <span>已用: <b style="color:#94a3b8;">${formatBytes(usedBytes)}</b></span>
+                    <span style="color:${progressColor}; font-weight:600;">${percent}%</span>
+                    <span>总量: <b style="color:#94a3b8;">${quotaBytes > 0 ? formatBytes(quotaBytes) : '∞ 无限制'}</b></span>
+                </div>
+            </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    function updateRealtimeMetrics(ip, rx, tx) {
+        const safeIp = ip.replace(/[^a-zA-Z0-9]/g, '-');
+        const rxEl = document.getElementById(`rx-spd-${safeIp}`);
+        const txEl = document.getElementById(`tx-spd-${safeIp}`);
+        if (rxEl && txEl) {
+            rxEl.innerText = formatSpeed(rx);
+            txEl.innerText = formatSpeed(tx);
+            
+            rxEl.style.color = '#fff'; txEl.style.color = '#fff';
+            setTimeout(() => {
+                if(rxEl) rxEl.style.color = '#4ade80';
+                if(txEl) txEl.style.color = '#06b6d4';
+            }, 300);
+        }
+    }
+
+    function openQuotaModal(ip) {
+        const data = nodeQuotaData[ip];
+        if(!data) return;
+        document.getElementById('quota-ip').value = ip;
+        document.getElementById('quota-ip-display').value = ip;
+        document.getElementById('quota-gb').value = (data.quota_bytes / (1024*1024*1024)).toFixed(2);
+        document.getElementById('quota-reset').value = data.reset_day;
+        document.getElementById('quota-mode').value = data.mode;
+        document.getElementById('quota-modal').style.display = 'flex';
+    }
+
+    function openCorrectionModal(ip) {
+        const data = nodeQuotaData[ip];
+        if(!data) return;
+        document.getElementById('corr-ip').value = ip;
+        document.getElementById('corr-ip-display').value = ip;
+        
+        let usedBytes = 0;
+        if(data.mode === 'rx_only') usedBytes = data.rx_bytes;
+        else if(data.mode === 'tx_only') usedBytes = data.tx_bytes;
+        else usedBytes = data.rx_bytes + data.tx_bytes;
+        
+        document.getElementById('corr-gb').value = (usedBytes / (1024*1024*1024)).toFixed(2);
+        document.getElementById('correction-modal').style.display = 'flex';
+    }
+
+    async function submitQuota() {
+        const ip = document.getElementById('quota-ip').value;
+        const gb = parseFloat(document.getElementById('quota-gb').value) || 0;
+        const reset = parseInt(document.getElementById('quota-reset').value) || 1;
+        const mode = document.getElementById('quota-mode').value;
+
+        try {
+            const res = await fetch('__ADMIN_BASE__/nodes/quota', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, quota_gb: gb, reset_day: reset, quota_mode: mode })
+            });
+            if (res.ok) {
+                if(!nodeQuotaData[ip]) nodeQuotaData[ip] = { name: ip };
+                nodeQuotaData[ip].quota_bytes = gb * 1024 * 1024 * 1024;
+                nodeQuotaData[ip].reset_day = reset;
+                nodeQuotaData[ip].mode = mode;
+                document.getElementById('quota-modal').style.display = 'none';
+                renderNetNodes();
+                alert("✅ 节点流量配额配置已更新");
+            } else { alert("❌ 更新失败"); }
+        } catch (e) { alert("❌ 网络错误"); }
+    }
+
+    async function submitCorrection() {
+        const ip = document.getElementById('corr-ip').value;
+        const gb = parseFloat(document.getElementById('corr-gb').value) || 0;
+        const type = document.getElementById('corr-type').value;
+
+        try {
+            const res = await fetch('__ADMIN_BASE__/nodes/correction', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, used_gb: gb, correction_type: type })
+            });
+            if (res.ok) {
+                const bytes = gb * 1024 * 1024 * 1024;
+                if(!nodeQuotaData[ip]) nodeQuotaData[ip] = { name: ip };
+                if(type === 'rx') nodeQuotaData[ip].rx_bytes = bytes;
+                else if(type === 'tx') nodeQuotaData[ip].tx_bytes = bytes;
+                else { nodeQuotaData[ip].rx_bytes = bytes; nodeQuotaData[ip].tx_bytes = 0; }
+                
+                document.getElementById('correction-modal').style.display = 'none';
+                renderNetNodes();
+                alert("✅ 节点流量已手动校正");
+            } else { alert("❌ 校正失败"); }
+        } catch (e) { alert("❌ 网络错误"); }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        const tbody = document.getElementById('nodes-tbody');
+        
+        let sysPos = fixZeroPos("{{ lat }}", "{{ lon }}");
+        let sysLat = sysPos[0];
+        let sysLon = sysPos[1];
+        
+        if (tbody && !document.getElementById('row-Direct-Access')) {
+            const rowHtml = `<tr id="row-Direct-Access" style="background: rgba(6,182,212,0.04); border-left: 3px solid #06b6d4;">
+                <td><code>Direct Access</code></td>
+                <td>${sysLat.toFixed(4)}, ${sysLon.toFixed(4)}</td>
+                <td><span style="color:#06b6d4;font-weight:600;font-family:'SF Mono',monospace;">Direct Access <span style="font-size:10px;background:rgba(6,182,212,0.15);color:#06b6d4;border:1px solid rgba(6,182,212,0.3);padding:2px 7px;border-radius:8px;margin-left:6px;">默认节点</span></span></td>
+                <td><span style="color:#94a3b8; font-size: 12px; font-style: italic;">🛡️ System Protected</span></td>
+                <td style="color:#4ade80; font-weight: bold;">Always Active</td>
+            </tr>`;
+            tbody.insertAdjacentHTML('afterbegin', rowHtml);
+        }
+    });
+
+    const trueNodesMap = {{ nodes_map_json|safe }};
+    const nodeAliases = {{ ip_to_name_json|safe }};
+    const currentFilters = "{{ selected_node }}".split(',');
+    let currentStats = {{ stats_json|safe }};
+    window.visitorMarkers = {};
+    
+    let statsMap = new Map();
+    function rebuildStatsMap() {
+        statsMap.clear(); overviewRevision++;
+        for (const row of currentStats.slice(0, renderLimits.stats).reverse()) { row[7] = canonicalNode(row[7]); statsMap.set(statKey(row), row); }
+        tableDirty = true;
+    }
+    rebuildStatsMap(); 
+
+    let sortMode = 'time';
+    let showIpMode = false;
+    let showHistPath = localStorage.getItem('traffic_history_visible') !== 'false';
+    let showClusterBubble = true;
+    const isZh = {{ is_zh_bool }};
+
+    const texts = {
+        on: isZh ? "开" : "On", off: isZh ? "关" : "Off",
+        geoPrefix: isZh ? "🌍 区域热力: " : "🌍 Geo Heatmap: ",
+        fogPrefix: isZh ? "🌫️ 迷雾热力: " : "🌫️ Fog Heat: ",
+        ipPrefix: isZh ? "🏷️ 访客 IP: " : "🏷️ Visitor IP: ",
+        trackPrefix: isZh ? "🗺️ 追踪: " : "🗺️ Track: ",
+        trackOn: isZh ? "🎯 追踪: 开启" : "🎯 Track: On",
+        histPathPrefix: isZh ? "🕸️ 历史连线: " : "🕸️ Hist Lines: ",
+        clusterPrefix: isZh ? "🫧 聚合气泡: " : "🫧 Clusters: ",
+        loading: isZh ? "⏳ 正在加载..." : "⏳ Loading...",
+        global: isZh ? "全局" : "Global",
+        menuTitle: isZh ? "⚙️ 控制面板" : "⚙️ Control Panel"
+    };
+    
+
+    function toggleClusterBubble() {
+        showClusterBubble = !showClusterBubble;
+        document.querySelectorAll('.cluster-btn').forEach(btn => {
+            btn.innerText = texts.clusterPrefix + (showClusterBubble ? texts.on : texts.off);
+            if(showClusterBubble) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+        });
+        if(cluster && typeof cluster.refreshClusters === 'function') {
+            cluster.refreshClusters();
+        }
+    }
+    
+    document.querySelectorAll('.cluster-btn').forEach(btn => {
+        btn.innerText = texts.clusterPrefix + (showClusterBubble ? texts.on : texts.off);
+        if (showClusterBubble) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+    });
+
+    function toggleLang() {
+        const currentIsZh = document.cookie.includes('lang=zh') || (!document.cookie.includes('lang=en') && navigator.language.toLowerCase().includes('zh'));
+        document.cookie = "lang=" + (currentIsZh ? "en" : "zh") + "; path=/; max-age=31536000";
+        location.reload();
+    }
+    function closeRightMenu() {
+        const rm = document.getElementById('right-menu');
+        if (rm) rm.classList.remove('open');
+        document.querySelectorAll('[aria-controls="right-menu"]').forEach(b=>b.setAttribute('aria-expanded','false'));
+    }
+    function toggleRightMenu() {
+        const open=document.getElementById('right-menu').classList.toggle('open');
+        document.querySelectorAll('[aria-controls="right-menu"]').forEach(b=>b.setAttribute('aria-expanded',String(open)));
+        if(open){document.getElementById('left-net-menu').classList.remove('open');if(isMobile)toggleMobileDrawer(false);}
+    }
+
+    document.addEventListener('click', (e) => { 
+        if(!e.target.closest('.multi-sel-container')) { document.querySelectorAll('.multi-sel-menu').forEach(m => m.classList.remove('show')); } 
+        const rightMenu = document.getElementById('right-menu');
+        if (rightMenu && rightMenu.classList.contains('open')) {
+            if (!e.target.closest('#right-menu') && !e.target.closest('[aria-controls="right-menu"]')) closeRightMenu();
+        }
+        const leftNetMenu = document.getElementById('left-net-menu');
+        if (leftNetMenu && leftNetMenu.classList.contains('open')) {
+            if (!e.target.closest('#left-net-menu') && !e.target.closest('#net-toggle-btn') && !e.target.closest('.cyber-modal')) leftNetMenu.classList.remove('open');
+        }
+    });
+
+    window.currentResTimeMs = {{ res_time }} * 1000;
+    
+    let pendingMarkers = [];
+    let pendingHeatmapPoints = [];
+    let pendingRefreshMarkers = new Set();
+    let markerQueue = [];
+    let uiUpdatePending = false;
+
+
+    function flushUiUpdates() {
+        uiTimer = 0; uiUpdatePending = false;
+        if (document.hidden || document.body.classList.contains('show-dashboard')) return;
+        flushVisitorUpdates();
+        if (pendingMarkers.length) {
+            if (isSpiderfied) markerQueue.push(...pendingMarkers); else cluster.addLayers(pendingMarkers);
+            pendingMarkers = [];
+        }
+        if (pendingRefreshMarkers.size) { cluster.refreshClusters(Array.from(pendingRefreshMarkers)); pendingRefreshMarkers.clear(); }
+        window.TrajectoryPool.refreshVisitorActivity();
+        wakeOdometers();
+        dirtyNodes.forEach(updateSingleNodeBubble); dirtyNodes.clear();
+        if (tableDirty) { renderTable(); tableDirty = false; }
+        const now = performance.now();
+        if (now - lastChartUpdate > 1000) {
+            lastChartUpdate = now; chartDirty = false;
+            if (heatBuckets) currentHeatmap = heatBuckets.rows();
+            drawHM();
+            if (enableFog && fogLayer) fogLayer.setLatLngs(Array.from(markerLRU.values(), m => { const p = m.getLatLng(); return [p.lat, p.lng, Math.min(50, m._hits || 1)]; }));
+            updatePerformanceStatus();
+        }
+        pendingHeatmapPoints = []; updateDashboard();
+        if (chartDirty || pendingVisitorUpdates.size) scheduleUiUpdate();
+    }
+    function scheduleUiUpdate() {
+        if (!uiTimer && !document.hidden && !document.body.classList.contains('show-dashboard')) uiTimer = setTimeout(flushUiUpdates, liveQueue.size > 500 ? 500 : 250);
+    }
+
+    {{ trajectory_js|safe }}
+    applyVisualStyles('{{ dyn_bright }}', '{{ res_bright }}', '{{ res_time }}', '{{ init_speed }}', '{{ anim_speed }}', '{{ init_thick }}', '{{ res_thick }}', '{{ dash_length }}', '{{ dash_gap }}');
+
+    function clearActiveLines() { 
+        if (window.TrajectoryPool) window.TrajectoryPool.clear(); 
+        resetVisitorLayer();
+    }
+
+    function interpolateColor(color1, color2, factor) {
+        if (factor > 1) factor = 1; if (factor < 0) factor = 0;
+        const hex1 = color1.substring(1), hex2 = color2.substring(1);
+        const r1 = parseInt(hex1.substring(0, 2), 16), g1 = parseInt(hex1.substring(2, 4), 16), b1 = parseInt(hex1.substring(4, 6), 16);
+        const r2 = parseInt(hex2.substring(0, 2), 16), g2 = parseInt(hex2.substring(2, 4), 16), b2 = parseInt(hex2.substring(4, 6), 16);
+        const r = Math.round(r1 + factor * (r2 - r1)), g = Math.round(g1 + factor * (g2 - g1)), b = Math.round(b1 + factor * (b2 - b1));
+        return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
+    }
+
+    function getNodeDisplayColor(name) {
+        return window.NodeStream?.isOffline(name)?'#8793a3':getDynamicNodeColor(nodeHits[name]||0,name==='Direct Access');
+    }
+
+    function getDynamicNodeColor(hits, isHub) {
+        if (isHub && hits < 10) return '#06b6d4'; 
+        if (hits < 10) return '#10b981'; 
+        if (hits < 100) return interpolateColor('#10b981', '#eab308', (hits - 10) / 90); 
+        if (hits < 1000) return interpolateColor('#eab308', '#f43f5e', (hits - 100) / 900); 
+        return '#f43f5e'; 
+    }
+
+    document.querySelectorAll('.hist-path-btn').forEach(btn => {
+        btn.innerText = texts.histPathPrefix + (showHistPath ? texts.on : texts.off);
+        if (showHistPath) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+    });
+
+    {{ mobile_js|safe }}
+
+    function escHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+    function escLoc(loc) { return escHtml(String(loc).trim()); }
+    
+    function getStableNodeHue(name) {
+        if (name === 'Direct Access') return 190;
+        let hash = 0; for (let i = 0; i < name.length; i++) { hash = name.charCodeAt(i) + ((hash << 5) - hash); }
+        const cyberHues = [15, 45, 150, 175, 190, 220, 275, 320]; return cyberHues[Math.abs(hash) % cyberHues.length];
+    }
+    function getNodeBaseColor(name, hits) {
+        if (name === 'Direct Access') return '#2be5ff';
+        const colors = ['#8c9dff', '#ffb85c', '#ff71bd', '#40efb2', '#5eb5ff', '#be8cff'];
+        return colors[TrafficRuntime.hash(name) % colors.length];
+    }
+    function getVisitorColor(loc) {
+        if (!loc || loc.includes('Unknown') || loc.includes('Private')) return '#94a3b8';
+        let country = loc.split('·')[0];
+        let hash = 0; for (let i = 0; i < country.length; i++) { hash = country.charCodeAt(i) + ((hash << 5) - hash); }
+        const cyberHues = [15, 45, 150, 175, 190, 205, 220]; return 'hsl(' + cyberHues[Math.abs(hash) % cyberHues.length] + ', 100%, 70%)';
+    }
+
+    window._domainList = [];
+
+    function showDomainStats() {
+        closeRightMenu(); 
+        const modal = document.getElementById('domain-modal');
+        if (modal.style.display === 'flex') { modal.style.display = 'none'; return; }
+        
+        const domainMap = {};
+        currentStats.forEach(s => {
+            const domain = s[8], hits = s[2], ip = s[0];
+            if (!domainMap[domain]) domainMap[domain] = { hits: 0, ips: new Set() };
+            domainMap[domain].hits += hits; domainMap[domain].ips.add(ip);
+        });
+
+        const sorted = Object.entries(domainMap).sort((a,b) => b[1].hits - a[1].hits);
+        window._domainList = [];
+        let html = '<table style="width:100%; border-collapse:collapse; text-align:left;"><thead><tr><th style="padding:10px 15px; border-bottom:1px solid rgba(255,255,255,0.1); color:#94a3b8;">Domain</th><th style="padding:10px 15px; border-bottom:1px solid rgba(255,255,255,0.1); color:#94a3b8;">Hits</th><th style="padding:10px 15px; border-bottom:1px solid rgba(255,255,255,0.1); color:#94a3b8;">UV</th></tr></thead><tbody>';
+        
+        sorted.forEach(([domain, data]) => {
+            window._domainList.push(domain);
+            let dIdx = window._domainList.length - 1;
+            let badge = '';
+            if (domain === '未配置透传' || domain === '-') badge = '<span class="domain-tag missing" style="margin-left:8px;">Config</span>';
+            else if (domain !== 'Direct Access') badge = `<span class="domain-tag" style="background:rgba(245,158,11,0.2);color:#f59e0b;margin-left:8px;">🎯</span>`;
+
+            html += `<tr class="clickable-row" onclick="clickDomain(${dIdx})" style="cursor:pointer; transition: background 0.2s;">
+                <td style="font-family:monospace; font-size:13px; padding:12px 15px; border-bottom:1px solid rgba(255,255,255,0.05);"><b style="color:#f8fafc;">${escHtml(domain)}</b>${badge}</td>
+                <td style="color:#f59e0b;font-weight:bold; font-size:13px; padding:12px 15px; border-bottom:1px solid rgba(255,255,255,0.05);">${data.hits}</td>
+                <td style="color:#06b6d4; font-size:13px; font-weight:600; padding:12px 15px; border-bottom:1px solid rgba(255,255,255,0.04);">${data.ips.size}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        
+        const timeSel = document.getElementById('time-sel');
+        const timeText = timeSel.options[timeSel.selectedIndex].text.replace(/^[\u231A\u23F3\u23F0\u23F1\u23F2\uD83D\uDD50-\uDD67🟢🔴⏱️⚡🚀🐌▶️⏸️⏹️🔄 ]+/, '').trim();
+        document.getElementById('domain-time-label').innerHTML = 'Scope: ' + escHtml(timeText);
+        document.getElementById('domain-list').innerHTML = html;
+        modal.style.display = 'flex';
+    }
+
+    const visitorIcon = L.divIcon({ 
+        className: 'visitor-dot-wrapper', 
+        html: '<div class="visitor-core-dot"></div>', 
+        iconSize: [0, 0], 
+        iconAnchor: [0, 0] 
+    });
+
+    window.clickDomain = function(idx) { let domainStr = window._domainList[idx]; if(domainStr) focusDomain(domainStr); };
+
+    window.focusDomain = function(targetDomain) {
+        let targetServer = 'Direct Access';
+        let maxHits = -1;
+        currentStats.forEach(s => { if (s[8] === targetDomain && s[2] > maxHits) { maxHits = s[2]; targetServer = s[7]; } });
+
+        clearActiveLines(); cluster.clearLayers(); window.historyLines.clearLayers();
+        if (activeFocusPath) map.removeLayer(activeFocusPath);
+        if (activeRadarPing) map.removeLayer(activeRadarPing);
+
+        let filteredHist = globalHistory.filter(h => h[6] === targetDomain);
+        const markersToAdd = [];
+        let sPos = getTruePos(targetServer);
+        
+        const processedFocus = new Set();
+
+        filteredHist.slice(0, renderLimits.markers).forEach(h => {
+            const markerKey = h[4] + '_' + h[0] + '_' + h[1];
+            if (processedFocus.has(markerKey)) return;
+            processedFocus.add(markerKey);
+
+            const fixedPos = fixZeroPos(h[0], h[1]);
+            const m = L.marker(fixedPos, { icon: visitorIcon });
+            let statKey = JSON.stringify([h[4], h[3], h[6]]);
+            const stat = statsMap.get(statKey);
+            m._hits = stat ? stat[2] : 1; 
+            m.bindPopup(`<b>${escHtml(h[4])}</b><br>🎯 ${escHtml(h[6])}<br>${escLoc(h[2])}`,{autoPan:false});
+            markersToAdd.push(m);
+            
+            addHistoryLine(fixedPos, getTruePos(h[3]), h[3]);
+        });
+        
+        cluster.addLayers(markersToAdd);
+        const cColorFocus = getNodeBaseColor(targetServer, maxHits);
+        activeRadarPing = L.circle(sPos, { renderer: mapCanvas, radius: 250000, color: cColorFocus, weight: 3, fillColor: cColorFocus, fillOpacity: 0.3, interactive: false }).addTo(map);
+        document.getElementById('domain-time-label').innerHTML = `<span style="color:#10b981;">[${escHtml(targetDomain)}]</span> <a href="javascript:void(0)" onclick="applyFilters(false, event); showDomainStats(); event.stopPropagation();" style="color:#06b6d4; margin-left:10px; font-weight:600; text-decoration:none;">✖ Reset</a>`;
+        if (isMobile && document.getElementById('data-panel').classList.contains('drawer-open')) { toggleMobileDrawer(false); }
+    };
+
+    const panelOpacity = document.getElementById('panel-opacity');
+    const dataPanel = document.getElementById('data-panel');
+    function updateOpacity(val) {
+        val=Math.max(0,Math.min(1,Number(val)));
+        dataPanel.style.setProperty('--visitor-panel-alpha',val);
+        document.getElementById('panel-opacity-value').textContent=Math.round(val*100)+'%';
+        document.querySelector('.v-header').style.backgroundColor=`rgba(11,15,25,${Math.min(val+.1,1)})`;
+        localStorage.setItem('panelOpacity',val);
+    }
+    const savedOpacity = localStorage.getItem('panelOpacity') || 0.85; panelOpacity.value = savedOpacity; setTimeout(() => updateOpacity(savedOpacity), 100);
+    panelOpacity.addEventListener('input', (e) => updateOpacity(e.target.value));
+
+    let geoRenderVersion = 0; let enableGeoHeatmap = false; let activeGeoLayers = []; let enableFog = false; let fogLayer = null;
+    
+    function toggleGeo() {
+        enableGeoHeatmap = !enableGeoHeatmap;
+        document.querySelectorAll('.geo-btn').forEach(btn => {
+            btn.innerText = texts.geoPrefix + (enableGeoHeatmap ? texts.on : texts.off);
+            if(enableGeoHeatmap) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+        });
+        if (enableGeoHeatmap) renderHighFreqGeo(); else clearGeoLayers();
+    }
+
+    function toggleFog() {
+        enableFog = !enableFog;
+        document.querySelectorAll('.fog-btn').forEach(btn => {
+            btn.innerText = texts.fogPrefix + (enableFog ? texts.on : texts.off);
+            if(enableFog) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+        });
+        if (enableFog) renderFog(); else if (fogLayer) { map.removeLayer(fogLayer); fogLayer = null; }
+    }
+
+    function renderFog() {
+        if (fogLayer) { map.removeLayer(fogLayer); fogLayer = null; }
+        if (!enableFog) return;
+        let heatPoints = []; let maxCount = 1;
+        currentStats.forEach(s => {
+            const fPos = fixZeroPos(s[5], s[6]);
+            if (fPos[0] !== 0 || fPos[1] !== 0) { heatPoints.push([fPos[0], fPos[1], s[2]]); if (s[2] > maxCount) maxCount = s[2]; }
+        });
+        fogLayer = L.heatLayer(heatPoints, {
+            radius: 45, blur: 35, max: Math.min(maxCount, 50),
+            gradient: { 0.1: 'rgba(0, 229, 255, 0.1)', 0.3: 'rgba(0, 255, 102, 0.3)', 0.6: 'rgba(255, 204, 0, 0.6)', 0.9: 'rgba(255, 153, 0, 0.8)', 1.0: 'rgba(255, 0, 0, 1)' }
+        }).addTo(map);
+    }
+    
+    function clearGeoLayers() { activeGeoLayers.forEach(l => map.removeLayer(l)); activeGeoLayers = []; }
+    
+    async function renderHighFreqGeo() {
+        const version = ++geoRenderVersion;
+        if (!enableGeoHeatmap) return; clearGeoLayers();
+        const countryHits = {};
+        currentStats.forEach(s => {
+            const loc = s[1]; if (!loc || loc.includes('Unknown') || loc.includes('Localhost') || loc.includes('Private')) return;
+            const country = loc.split('·')[0]; countryHits[country] = (countryHits[country] || 0) + s[2];
+        });
+        const sortedCountries = Object.entries(countryHits).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        for (const [country, hits] of sortedCountries) {
+            if (!enableGeoHeatmap) break; if (hits < 2) continue;
+            const geo = await fetchGeo(country, '0.1');
+            if (version !== geoRenderVersion || !enableGeoHeatmap) return;
+            if (geo && enableGeoHeatmap) {
+                const layer = L.geoJSON(geo, { renderer: mapCanvas, style: { color: '#06b6d4', weight: 2, fillColor: '#06b6d4', fillOpacity: 0.15, className: 'neon-country' }, interactive: false }).addTo(map);
+                activeGeoLayers.push(layer);
+            }
+            await new Promise(r => setTimeout(r, 1200)); 
+        }
+    }
+
+    function toggleShowIp() {
+        showIpMode = !showIpMode;
+        document.querySelectorAll('.showip-btn').forEach(btn => {
+            btn.innerText = texts.ipPrefix + (showIpMode ? texts.on : texts.off);
+            if(showIpMode) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+        });
+        for (const marker of markerLRU.values()) {
+            if (!showIpMode) marker.unbindTooltip();
+            else if (!marker.getTooltip()) marker.bindTooltip(escHtml(marker._visitorIP || '') + ' ×' + marker._hits, {permanent:false, direction:'right', className:'ip-tip'});
+        }
+
+    }
+    
+    let isMapLocked=false;
+    function toggleFollow() {
+        isMapLocked=!isMapLocked;
+        for(const key of ['dragging','scrollWheelZoom','doubleClickZoom','touchZoom','boxZoom','keyboard'])map[key]?.[isMapLocked?'disable':'enable']();
+        document.querySelectorAll('.follow-btn').forEach(btn=>{
+            btn.innerText=isZh?(isMapLocked?'🔒 地图: 固定':'🔓 地图: 手动'):(isMapLocked?'🔒 Map: Locked':'🔓 Map: Manual');
+            btn.classList.toggle('active-btn',!isMapLocked);
+        });
+    }
+
+    function showWorldView() {
+        refreshMapCover(true);
+    }
+
+    function toggleHistPath() {
+        showHistPath = !showHistPath;
+        document.querySelectorAll('.hist-path-btn').forEach(btn => {
+            btn.innerText = texts.histPathPrefix + (showHistPath ? texts.on : texts.off);
+            if (showHistPath) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+        });
+        localStorage.setItem('traffic_history_visible', String(showHistPath));
+        window.TrajectoryPool.setHistoryVisible(showHistPath);
+    }
+
+    let currentHeatmap = {{ hm_json|safe }};
+    let hmChart = null;
+    let pbState = { active: false, playing: false, hist: [], index: 0, rAF: null, lastTime: 0, seekTarget: null, resumeAfterSeek: false };
+
+    function drawHM() {
+        const ctx = document.getElementById('hm-chart').getContext('2d');
+        const daysVal = parseFloat(document.getElementById('time-sel').value) || 1.0;
+        
+        let stepMs, steps;
+        if (daysVal <= 0.05) { stepMs = 60 * 1000; steps = 60; } 
+        else if (daysVal <= 1.0) { stepMs = 3600 * 1000; steps = 24; } 
+        else { stepMs = 24 * 3600 * 1000; steps = Math.max(1, Math.round(daysVal)); }
+
+        let parsedData = []; let maxDataTs = 0; 
+
+        if (Array.isArray(currentHeatmap)) {
+            for (let i = 0; i < currentHeatmap.length; i++) {
+                let item = currentHeatmap[i];
+                if (!item || !item[0]) continue;
+                
+                let t = item[2];
+                if (!t) {
+                    t = TrafficRuntime.timestamp(item[0]);
+                    item[2] = t; 
+                }
+                
+                if (!isNaN(t)) {
+                    parsedData.push({ ts: t, count: Number(item[1] || 0) });
+                    if (!pbState.active && t > maxDataTs) maxDataTs = t; 
+                }
+            }
+        }
+
+        if (typeof pbState !== 'undefined' && pbState.active && pbState.hist.length > 0) {
+            let lastItem = pbState.hist[pbState.hist.length - 1];
+            if (lastItem) {
+                let parsed = TrafficRuntime.timestamp(lastItem[5]);
+                if (!isNaN(parsed)) maxDataTs = parsed;
+            }
+        }
+
+        let anchorTs = maxDataTs > 0 ? maxDataTs : Date.now();
+        if (stepMs === 60 * 1000) { anchorTs = Math.floor(anchorTs / 60000) * 60000; } 
+        else if (stepMs === 3600 * 1000) { anchorTs = Math.floor(anchorTs / 3600000) * 3600000; } 
+        else { anchorTs = Math.floor(anchorTs / 86400000) * 86400000; }
+
+        const labels = []; const binTimestamps = []; 
+        const dataBins = new Array(steps).fill(null); 
+
+        for (let i = 0; i < steps; i++) {
+            let targetTs = anchorTs - (steps - 1 - i) * stepMs;
+            binTimestamps.push(targetTs);
+            let tObj = new Date(targetTs);
+            let label = (stepMs < 86400000) ? 
+                tObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
+                tObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            labels.push(label);
+        }
+
+        for (const pd of parsedData) {
+            const index = Math.floor((pd.ts - binTimestamps[0]) / stepMs);
+            if (index >= 0 && index < steps) dataBins[index] = (dataBins[index] || 0) + pd.count;
+        }
+
+        let gradient = ctx.createLinearGradient(0, 0, 0, 95);
+        gradient.addColorStop(0, 'rgba(56,189,248, 0.45)'); gradient.addColorStop(1, 'rgba(56,189,248, 0.02)');
+
+        if (hmChart) {
+            hmChart.data.labels = labels; hmChart.data.datasets[0].data = dataBins; 
+            hmChart.data.datasets[0].backgroundColor = gradient; hmChart.update('none'); 
+        } else {
+            hmChart = new Chart(ctx, {
+                type: 'line',
+                data: { 
+                    labels: labels, 
+                    datasets: [{ 
+                        data: dataBins, 
+                        borderColor: '#06b6d4', 
+                        backgroundColor: gradient, 
+                        borderWidth: 2, 
+                        fill: true, 
+                        tension: 0.4,
+                        pointRadius: function(context) { return context.raw !== null ? 2.5 : 0; }, 
+                        pointBackgroundColor: '#06b6d4',
+                        pointHoverRadius: 6, 
+                        spanGaps: false 
+                    }] 
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } }, scales: { x: { display: true, ticks: { color: '#94a3b8', font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false, drawBorder: false } }, y: { display: false, beginAtZero: true, suggestedMax: 5 } }, interaction: { mode: 'nearest', axis: 'x', intersect: false }, animation: { duration: 0 } }
+            });
+        }
+    }
+
+    async function startPlayback(forceRestart = false) {
+        closeRightMenu(); if (pbState.active && !forceRestart) return;
+        switchDashMode('map');
+        dataRequest?.abort(); playbackRequest?.abort();
+        const controller = new AbortController(); playbackRequest = controller;
+        ++requestVersion;
+        liveQueue.clear(); cancelAnimationFrame(liveFrame); liveFrame = 0;
+        if (forceRestart && pbState.rAF) { cancelAnimationFrame(pbState.rAF); pbState.playing = false; }
+        
+        document.querySelectorAll('.main-play-btn').forEach(btn => {
+            btn.innerText = isZh ? '正在拉取...' : 'Loading...'; btn.style.opacity = '0.7'; btn.style.pointerEvents = 'none';
+        });
+        
+        const days = document.getElementById('time-sel').value; let vals = [];
+        const activeMenu = document.querySelector('.multi-sel-menu.show') || document.querySelectorAll('.multi-sel-menu')[0]; 
+        const cbAll = activeMenu.querySelector('.cb-all');
+
+        if (cbAll && cbAll.checked) { vals.push('All'); } 
+        else { activeMenu.querySelectorAll('.node-cb:checked').forEach(el => { if (!vals.includes(el.value)) vals.push(el.value); }); }
+        if(vals.length === 0) vals.push('All');
+        
+        const filterStr = encodeURIComponent(vals.join(','));
+        
+        try {
+            const res = await fetch(`__ADMIN_BASE__/api/playback?node=${filterStr}&days=${days}`, { signal: controller.signal });
+            if (!res.ok && res.status !== 401) throw new Error("Playback request failed");
+            if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; }
+            const histData = await res.json();
+            
+            if (controller !== playbackRequest || controller.signal.aborted) return;
+            pbState.hist = histData; pbState.seekTarget = null;
+            liveQueue.clear(); cancelAnimationFrame(liveFrame); liveFrame = 0;
+            if (pbState.hist.length === 0) { 
+                alert(isZh ? "选定时间内无历史数据" : "No history data in scope"); 
+                document.querySelectorAll('.main-play-btn').forEach(btn => { btn.innerText = '{{ t_playback }}'; btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; });
+                pbState.active = false; document.body.classList.remove('playback-active'); document.getElementById('playback-ctrl').style.display = 'none'; return;
+            }
+            
+            clearActiveLines(); pendingMarkers = []; window.historyLines.clearLayers(); 
+            if (isSpiderfied) cluster.unspiderfy(); cluster.clearLayers();
+            if (enableFog && fogLayer) { map.removeLayer(fogLayer); fogLayer = L.heatLayer([], { radius:45, blur:35, max:10, gradient: { 0.1: 'rgba(0, 229, 255, 0.1)', 0.3: 'rgba(0, 255, 102, 0.3)', 0.6: 'rgba(255, 204, 0, 0.6)', 0.9: 'rgba(255, 153, 0, 0.8)', 1.0: 'rgba(255, 0, 0, 1)' } }).addTo(map); }
+            
+            pbState.active = true; document.body.classList.add('playback-active'); pbState.playing = true; pbState.index = 0; pbState.lastTime = performance.now();
+            document.getElementById('playback-ctrl').style.display = 'flex';
+            
+            const timeSel = document.getElementById('time-sel');
+            const timeText = timeSel.options[timeSel.selectedIndex].text.replace(/^[\u231A\u23F3\u23F0\u23F1\u23F2\uD83D\uDD50-\uDD67🟢🔴⏱️⚡🚀🐌▶️⏸️⏹️🔄 ]+/, '').trim();
+            const badge = document.getElementById('playback-badge');
+            badge.innerText = '[ ⏪ ' + timeText + ' ]'; badge.style.display = 'inline-block';
+            
+            document.querySelectorAll('.main-play-btn').forEach(btn => {
+                btn.innerText = isZh ? '正在回放...' : 'Playing...'; btn.classList.add('active-btn'); btn.style.opacity = '1'; btn.style.pointerEvents = 'auto';
+            });
+            
+            document.getElementById('pb-play-btn').innerText = '⏸️';
+            document.getElementById('pb-slider').max = pbState.hist.length - 1; document.getElementById('pb-slider').value = 0;
+            
+            resetPlaybackData();
+            refreshNodeLayout(); drawHM(); pbState.rAF = requestAnimationFrame(pbLoop);
+            if(isMobile) toggleMobileDrawer(false); 
+        } catch(e) {
+            if (e.name === "AbortError") return;
+            alert(isZh ? "加载回放数据失败" : "Failed to load playback data");
+            document.querySelectorAll('.main-play-btn').forEach(btn => { btn.innerText = '{{ t_playback }}'; btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; });
+        }
+    }
+    
+    function stopPlayback(event, noRefetch = false) {
+        if(event) event.preventDefault();
+        playbackRequest?.abort(); playbackRequest = null; pbState.hist = []; pbState.seekTarget = null;
+        pbState.active = false; document.body.classList.remove('playback-active'); pbState.playing = false; if(pbState.rAF) cancelAnimationFrame(pbState.rAF);
+        document.getElementById('playback-ctrl').style.display = 'none'; document.getElementById('playback-badge').style.display = 'none';
+        document.querySelectorAll('.main-play-btn').forEach(btn => { btn.innerText = '{{ t_playback }}'; btn.classList.remove('active-btn'); });
+        clearActiveLines(); if(vsContainer) vsContainer.scrollTop = 0; if(!noRefetch) applyFilters(true); 
+    }
+    
+    function togglePlayPause(event) {
+        if (event) event.preventDefault();
+        if (pbState.seekTarget != null) { pbState.resumeAfterSeek = !pbState.resumeAfterSeek; return; }
+        cancelAnimationFrame(pbState.rAF);
+        if (pbState.index >= pbState.hist.length) { resetPlaybackData(); pbState.playing = false; }
+        pbState.playing = !pbState.playing;
+        document.getElementById('pb-play-btn').textContent = pbState.playing ? '⏸️' : '▶️';
+        if (pbState.playing) { pbState.lastTime = performance.now(); pbState.rAF = requestAnimationFrame(pbLoop); }
+    }
+    document.getElementById('pb-slider').addEventListener('input', e => seekPlayback(Number(e.target.value)));
+
+    function spawnOrUpdateVisitorMarker(markerKey, vPos, ip, targetDomain, location, count, vColor) {
+        let m = window.visitorMarkers[markerKey];
+        let isNew = false;
+        
+        if (!m) {
+            m = L.marker(vPos, { icon: visitorIcon });
+            let tagStr = (targetDomain && targetDomain !== '未配置透传' && targetDomain !== '-' && targetDomain !== 'Direct Access') ? `<br>🎯 ${escHtml(targetDomain)}` : '';
+            m.bindPopup(`<b>${escHtml(ip)}</b>${tagStr}<br>${escLoc(location)}`,{autoPan:false});
+            window.visitorMarkers[markerKey] = m;
+            pendingMarkers.push(m);
+            if (enableFog && fogLayer) { pendingHeatmapPoints.push([vPos[0], vPos[1], 1]); }
+            isNew = true;
+        }
+        
+        m._visitorIP = ip; m._hits = count;
+        if (!isNew) { pendingRefreshMarkers.add(m); }
+
+        if (showIpMode) {
+            const tipClass = count >= 10 ? 'ip-tip high' : 'ip-tip';
+            const cntHtml = count > 1 ? ` <span style="opacity:0.7">x${count}</span>` : '';
+            const content = escHtml(ip) + cntHtml;
+            
+            if (!m.getTooltip()) {
+                m.bindTooltip(content, {permanent: false, direction: 'right', className: tipClass, offset: [5, 0], interactive: false});
+            } else {
+                m.setTooltipContent(content);
+                const el = m.getTooltip().getElement();
+                if(el) { el.className = `leaflet-tooltip leaflet-zoom-animated leaflet-tooltip-right ${tipClass}`; }
+            }
+        } else {
+            if (m.getTooltip()) m.unbindTooltip();
+        }
+        
+        retainMarker(markerKey, m);
+        return m;
+    }
+    
+    function pbLoop(timestamp) {
+        pbState.rAF = null;
+        if (!pbState.active || document.hidden || (!pbState.playing && pbState.seekTarget == null)) return;
+        const speed = Number(document.getElementById('pb-speed').value) || 200;
+        const seeking = pbState.seekTarget != null;
+        const due = seeking ? pbState.seekTarget : Math.min(pbState.hist.length, pbState.index + Math.floor(Math.max(0, timestamp - pbState.lastTime) / speed));
+        const deadline = performance.now() + 4;
+        let processed = 0;
+        while (pbState.index < due && performance.now() < deadline && processed < 200) {
+            if ((!seeking || pbState.index >= due - 40) && !window.TrajectoryPool.availableSlots()) break;
+            const visual = !seeking || pbState.index >= due - 40;
+            ingestVisitor(playbackEvent(pbState.hist[pbState.index++]), visual);
+            if (!seeking) pbState.lastTime += speed;
+            processed++;
+        }
+        if (processed) { updatePlaybackPosition(); scheduleUiUpdate(); }
+        if (seeking && pbState.index >= pbState.seekTarget) {
+            pbState.seekTarget = null; pbState.playing = pbState.resumeAfterSeek; pbState.lastTime = timestamp;
+        }
+        if (pbState.index >= pbState.hist.length) pbState.playing = false;
+        document.getElementById('pb-play-btn').textContent = pbState.index >= pbState.hist.length ? '🔄' : pbState.playing ? '⏸️' : '▶️';
+        if (pbState.playing || pbState.seekTarget != null) pbState.rAF = requestAnimationFrame(pbLoop);
+    }
+
+    const resizer = document.getElementById('resizer'); let isResizing = false; let lastHeight = '40vh'; 
+    function initResize(e) { if(isMobile) return; isResizing = true; document.body.classList.add('is-resizing'); }
+    function doResize(clientY) { if (!isResizing || isMobile) return; let newHeight = window.innerHeight - clientY; if (newHeight < 80) newHeight = 80; if (newHeight > window.innerHeight - 150) newHeight = window.innerHeight - 150; dataPanel.style.height = newHeight + 'px'; map.invalidateSize(); }
+    function stopResize() { if (isResizing && !isMobile) { isResizing = false; document.body.classList.remove('is-resizing'); lastHeight = dataPanel.style.height; map.invalidateSize(); } }
+    resizer.addEventListener('mousedown', initResize); document.addEventListener('mousemove', (e) => doResize(e.clientY)); document.addEventListener('mouseup', stopResize);
+    
+    function toggleCollapse() { if (isMobile) return; if (dataPanel.offsetHeight > 100) { lastHeight = dataPanel.style.height; dataPanel.style.height = '80px'; } else { dataPanel.style.height = (lastHeight && lastHeight !== '80px') ? lastHeight : '40vh'; } setTimeout(() => map.invalidateSize(), 400); }
+
+    function smoothInvalidateSize() { if(!map) return; map.invalidateSize(false); setTimeout(() => map.invalidateSize({animate:false}), 300); }
+    
+    async function toggleFS() {
+        try { if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen(); }
+        catch { /* The map already fills the viewport when browser fullscreen is unavailable. */ }
+    }
+
+    let isSidebarOpen = false; 
+    function toggleSidebar(event) { event?.preventDefault();event?.stopPropagation();isSidebarOpen=!isSidebarOpen;document.body.classList.toggle('show-sidebar',isSidebarOpen);document.body.classList.remove('show-dashboard');document.getElementById('nav-btn-dash')?.classList.remove('active');document.getElementById('nav-btn-map')?.classList.add('active');closeRightMenu();document.querySelector('.map-dock .sidebar-btn')?.classList.toggle('active',isSidebarOpen);refreshNodeLayout(); }
+    function toggleAll(cb) { const menu = cb.closest('.multi-sel-menu'); if (menu) menu.querySelectorAll('.node-cb').forEach(el => el.checked = cb.checked); }
+    function updateAllCb() { document.querySelectorAll('.multi-sel-menu').forEach(menu => { const allCb = menu.querySelector('.cb-all'); const cbs = menu.querySelectorAll('.node-cb'); if (allCb && cbs.length > 0) { allCb.checked = Array.from(cbs).every(cb => cb.checked); } }); }
+    
+    let vsData = []; const ROW_HEIGHT = 50; const vsContainer = document.getElementById('scroll-container'); const vsSpacer = document.getElementById('scroll-spacer'); const vsContent = document.getElementById('scroll-content');
+    window.focusRow = function(idx) { let s = vsData[idx]; if(s) focusPath(s[5], s[6], s[0], s[1], s[7], false); };
+
+    function changeSort(mode) { sortMode = mode; renderTable(true); }
+
+    function renderTable(forceSort = true) {
+        currentStats = Array.from(statsMap.values());
+        if (sortMode === 'freq') currentStats.sort((a, b) => b[2] - a[2]);
+        else {
+            for (const row of currentStats) row._ts = TrafficRuntime.timestamp(row[3]);
+            currentStats.sort((a, b) => b._ts - a._ts);
+        }
+        vsData = currentStats;
+        if (vsSpacer) vsSpacer.style.height = (vsData.length * ROW_HEIGHT) + 'px';
+        updateVS();
+    }
+
+    let vsTicking = false;
+    if(vsContainer) { vsContainer.addEventListener('scroll', () => { if (!vsTicking) { window.requestAnimationFrame(() => { updateVS(); vsTicking = false; }); vsTicking = true; } }); }
+
+    function updateVS() {
+        if(!vsContainer || !vsContent) return;
+        const st = vsContainer.scrollTop; const ch = vsContainer.clientHeight || 500;
+        const start = Math.max(0, Math.floor(st / ROW_HEIGHT) - 3); let end = Math.min(vsData.length, Math.ceil((st + ch) / ROW_HEIGHT) + 3); if (start > end) end = start;
+
+        let html = '';
+        for(let i=start; i<end; i++) {
+            let s = vsData[i];
+            let sid = (s[7]||'').replace(/[^a-zA-Z0-9]/g, '-') + '-' + (s[0]||'').replace(/[^a-zA-Z0-9]/g, '-') + '-' + (s[8]||'').replace(/[^a-zA-Z0-9]/g, '-');
+            let timeStr = new Date(TrafficRuntime.timestamp(s[3])).toLocaleString();
+            
+            let domainHtml = '';
+            if (s[8] && s[8] !== '-' && s[8] !== 'Direct Access') {
+                if (s[8] === '未配置透传') { domainHtml = '<br><span class="domain-tag missing">🎯 L7 Missing</span>'; } else { domainHtml = `<br><span class="domain-tag">🎯 ${escHtml(s[8])}</span>`; }
+            }
+            
+            let rowClasses = "v-row"; if (sortMode === 'time') { if (i === 0) rowClasses += " row-top-1"; else if (i === 1) rowClasses += " row-top-2"; }
+            if (i === 0 && sortMode === 'time' && performance.now() < rowFlashUntil) rowClasses += ' flash-trigger';
+            let nHue = getStableNodeHue(s[7]);
+            
+            html += `<div id="v-row-${sid}" class="${rowClasses}" style="transform: translate3d(0, ${(i * ROW_HEIGHT)}px, 0); --row-h: ${nHue};" onclick="focusRow(${i})">
+                <div class="v-col c-node"><span class="node-badge">${escHtml(s[7])}</span></div>
+                <div class="v-col c-ip" style="line-height:1.2;">${escHtml(s[0])}${domainHtml}</div>
+                <div class="v-col c-loc" title="${escLoc(s[1])}">${escLoc(s[1])}</div>
+                <div class="v-col c-hits" id="count-${escHtml(sid)}">${s[2]}</div>
+                <div class="v-col c-lang hide-mobile">${escHtml(s[4])}</div>
+                <div class="v-col c-time" id="time-${escHtml(sid)}">${escHtml(timeStr)}</div>
+            </div>`;
+        }
+        if (vsContent._lastHTML !== html) { vsContent.innerHTML = html; vsContent._lastHTML = html; }
+    }
+
+    async function genKey(event) { 
+        if(event) event.preventDefault(); const btn = event.target; const origText = btn.innerText; btn.innerText = isZh ? '生成中...' : 'Generating...'; btn.style.opacity = '0.5'; btn.style.pointerEvents = 'none';
+        try {
+            const res = await fetch('__ADMIN_BASE__/api_keys/generate', { method: 'POST' }); if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; } 
+            const pageRes = await fetch('__ADMIN_BASE__'); const htmlStr = await pageRes.text(); const parser = new DOMParser(); const doc = parser.parseFromString(htmlStr, 'text/html'); const newTbody = doc.getElementById('keys-tbody');
+            if (newTbody) { document.getElementById('keys-tbody').innerHTML = newTbody.innerHTML; }
+        } catch(e) { }
+        btn.innerText = origText; btn.style.opacity = '1'; btn.style.pointerEvents = 'auto';
+    }
+
+    document.addEventListener('submit', async (e) => {
+        const form = e.target;
+        if (form.action && form.action.includes('__ADMIN_BASE__/api_keys/delete')) {
+            e.preventDefault(); const btn = form.querySelector('button'); btn.innerText = '...'; btn.style.opacity = '0.5';
+            try { const res = await fetch(form.action, { method: 'POST' }); if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; } if (res.ok) { form.closest('tr').remove(); } else { btn.innerText = 'Err'; } } catch(err) { btn.innerText = 'Err'; }
+        }
+    });
+
+    function updateIpModeUI(mode) {
+        for(const [id,value,label] of [['btn_mode_local','LocalDb','⚡ 模式一：极速离线数据库'],['btn_mode_api','HttpApi','🌐 模式二：实时外部 HTTP API']]){const button=document.getElementById(id);button.style.border=mode===value?'2px solid #06b6d4':'1px solid rgba(255,255,255,0.08)';button.style.boxShadow=mode===value?'0 0 15px rgba(6,182,212,.3)':'none';button.textContent=label+(mode===value?' (当前启用)':'');}
+    }
+    fetch('__ADMIN_BASE__/api/settings/ip-mode').then(r => r.text()).then(mode => { if(mode === 'LocalDb' || mode === 'HttpApi') { updateIpModeUI(mode); } }).catch(e => console.error("无法加载 IP 解析模式", e));
+
+    async function switchIpMode(mode) {
+        if (!confirm(`确定要将所有节点的 IP 解析模式切换为 [${mode === 'LocalDb' ? '极速本地离线库' : '实时外部 HTTP API'}] 吗？`)) return;
+        try {
+            const resp = await fetch('__ADMIN_BASE__/api/settings/ip-mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: mode }) });
+            if (resp.ok) { const msg = await resp.text(); alert(msg); updateIpModeUI(mode); } else { const errMsg = await resp.text(); alert(errMsg || '❌ 切换失败，可能鉴权已过期，请重新登录。'); }
+        } catch (e) { alert('❌ 网络请求失败'); }
+    }
+
+    let globalHistory = {{ history_json|safe }}; const nodeHits = {}; const nodeMarkers = {};
+    function calculateNodeHits() { for (let k in nodeHits) delete nodeHits[k]; currentStats.forEach(s => { const nName = s[7]; nodeHits[nName] = (nodeHits[nName] || 0) + s[2]; }); }
+
+    for(let k in trueNodesMap) {
+        trueNodesMap[k] = fixZeroPos(trueNodesMap[k][0], trueNodesMap[k][1]);
+    }
+
+    {{ node_layout_js|safe }}
+
+    async function applyFilters(fetchData = true, event) {
+        if(event) event.preventDefault();
+        
+        if (pbState.active) {
+            if (fetchData) {
+                document.querySelectorAll('.multi-sel-menu').forEach(m => m.classList.remove('show')); let vals = []; const activeMenu = document.querySelector('.multi-sel-menu.show') || document.querySelectorAll('.multi-sel-menu')[0]; const cbAll = activeMenu.querySelector('.cb-all');
+                if (cbAll && cbAll.checked) { vals.push('All'); } else { activeMenu.querySelectorAll('.node-cb:checked').forEach(el => { if (!vals.includes(el.value)) vals.push(el.value); }); }
+                if(vals.length === 0) vals.push('All');
+                const selCountText = vals.includes('All') ? texts.global : vals.join(', '); document.querySelectorAll('.btn-text').forEach(el => { el.innerText = '⚡ ' + selCountText; el.title = selCountText; });
+                startPlayback(true);
+            }
+            return;
+        }
+        dataRequest?.abort(); const controller = new AbortController(); dataRequest = controller;
+        const version = ++requestVersion; if(fetchData)liveQueue.clear();
+        document.getElementById('domain-time-label').innerHTML = ''; if(vsContainer) vsContainer.scrollTop = 0;
+
+        if (fetchData) {
+            let vals = []; const activeMenu = document.querySelector('.multi-sel-menu.show') || document.querySelectorAll('.multi-sel-menu')[0]; const cbAll = activeMenu.querySelector('.cb-all');
+            if (cbAll && cbAll.checked) { vals.push('All'); } else { activeMenu.querySelectorAll('.node-cb:checked').forEach(el => { if (!vals.includes(el.value)) vals.push(el.value); }); }
+            if(vals.length === 0) vals.push('All');
+            document.querySelectorAll('.multi-sel-menu').forEach(m => m.classList.remove('show')); document.querySelectorAll('.btn-text').forEach(el => el.innerText = texts.loading);
+            const days = document.getElementById('time-sel').value; currentFilters.length = 0; currentFilters.push(...vals);
+            
+            try {
+                const filterStr = encodeURIComponent(vals.join(',')); const res = await fetch(`__ADMIN_BASE__/api/data?node=${filterStr}&days=${days}`, { signal: controller.signal }); if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; } if (!res.ok) throw new Error("Data request failed"); const data = await res.json();
+                if (version !== requestVersion || pbState.active) return;
+                currentStats = data.stats; rebuildStatsMap(); globalHistory = data.history; resetHeat(data.heatmap); statsEvicted = 0; drawHM();
+                if (enableGeoHeatmap) renderHighFreqGeo(); if (enableFog) renderFog();
+                const selCountText = vals.includes('All') ? texts.global : vals.join(', '); document.querySelectorAll('.btn-text').forEach(el => { el.innerText = '⚡ ' + selCountText; el.title = selCountText; });
+            } catch(e) { if (e.name === "AbortError") return; document.querySelectorAll('.btn-text').forEach(el => el.innerText = "❌ Err"); setTimeout(() => document.querySelectorAll('.btn-text').forEach(el => el.innerText = "⚡ Retry"), 2000); return; }
+        }
+
+        if(fetchData||!Object.keys(nodeHits).length)calculateNodeHits();
+        renderTable(); refreshNodeLayout(); clearActiveLines(); pendingMarkers = []; markerQueue = []; 
+        if (isSpiderfied) cluster.unspiderfy(); cluster.clearLayers(); seedHistoricalRoutes();
+        const maxHistory = renderLimits.markers; const displayHistory = globalHistory.slice(0, maxHistory);
+        const markersToAdd = [];
+        
+        const processedMarkers = new Set();
+
+        displayHistory.forEach(h => {
+            const vPos = fixZeroPos(h[0], h[1]); 
+            const markerKey = JSON.stringify([h[4], h[3], h[6], vPos]);
+            
+            if (processedMarkers.has(markerKey)) return; 
+            processedMarkers.add(markerKey);
+
+            const m = L.marker(vPos, { icon: visitorIcon });
+            let tagStr = '';
+            if(h[6] && h[6] !== '未配置透传' && h[6] !== '-' && h[6] !== 'Direct Access') { tagStr = `<br>🎯 ${escHtml(h[6])}`; }
+            m.bindPopup(`<b>${escHtml(h[4])}</b>${tagStr}<br>${escLoc(h[2])}`,{autoPan:false});
+            let statKey = JSON.stringify([h[4], h[3], h[6]]); const stat = statsMap.get(statKey); const count = stat ? stat[2] : 1;
+            m._visitorIP = h[4]; m._hits = count;
+            
+            if (showIpMode) { 
+                const tipClass = count >= 10 ? 'ip-tip high' : 'ip-tip'; 
+                const cntHtml = count > 1 ? ` <span style="opacity:0.7">x${count}</span>` : ''; 
+                m.bindTooltip(escHtml(h[4]) + cntHtml, {permanent: false, direction: 'right', className: tipClass, offset: [5, 0]}); 
+            }
+            window.visitorMarkers[markerKey] = m; retainMarker(markerKey, m); markersToAdd.push(m); const trueTargetPos = trueNodesMap[h[3]] || fixZeroPos("{{ lat }}", "{{ lon }}");
+
+        });
+        cluster.addLayers(markersToAdd); scheduleUiUpdate();
+    }
+
+    function openSettings(event) { if(window.Account?.role==='viewer')switchTab('account');if(event) { event.preventDefault(); event.stopPropagation(); } window.settingsReturnFocus=isMobile&&document.activeElement?.closest('#right-menu')?document.querySelector('[data-mobile-view=more]'):document.activeElement;document.getElementById('settings-modal').style.display='flex';document.getElementById('settings-backdrop').hidden=false;document.getElementById('settings-modal').focus({preventScroll:true});toggleMobileDrawer(false);closeRightMenu(); }
+    function closeSettings(event) { if(event) event.preventDefault(); document.getElementById('settings-modal').style.display='none';document.getElementById('settings-backdrop').hidden=true;window.settingsReturnFocus?.focus({preventScroll:true}); }
+    function openMapConfigModal(event) { if(event) { event.preventDefault(); event.stopPropagation(); } openSettings(event); switchTab('map-config', event); }
+    function dismissMapKeyPill(event) { if(event) { event.preventDefault(); event.stopPropagation(); } const pill = document.getElementById('map-key-warning-pill'); if(pill) pill.style.display = 'none'; sessionStorage.setItem('dismiss_carto_warning', 'true'); }
+    function switchTab(tabId, ev) {
+        if(ev) ev.preventDefault();
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        const tabEl = document.getElementById(tabId);
+        if(tabEl) tabEl.classList.add('active');
+        if(ev && ev.target && ev.target.classList.contains('tab-btn')) {
+            ev.target.classList.add('active');
+        } else {
+            const matchedBtn = document.querySelector(`.tab-btn[onclick*="'${tabId}'"]`);
+            if(matchedBtn) matchedBtn.classList.add('active');
+        }
+        const activeTab=document.querySelector('#settings-modal .tab-btn.active');
+        if(isMobile&&activeTab){const rail=activeTab.parentElement;rail.scrollLeft=Math.max(0,activeTab.offsetLeft-rail.offsetLeft-12);}
+        if(tabId === 'map-config') renderMapKeyStatus();
+    }
+
+    const rejectedNodes = new Set();
+
+    async function deleteNode(ip, name, btnEl, event) {
+        if (event) event.preventDefault(); 
+        if (ip === 'Direct Access' || name === 'Direct Access') { alert('⚠️ 系统默认节点受到底层保护，不可删除！'); return; }
+        if (!confirm(`确定要彻底删除节点 [${name}] 吗？\n如果该节点仍在运行，它将被静默隔离到“挂起菜单”中，且不再弹出提示。`)) return;
+        if(btnEl) { btnEl.innerText = 'Wait...'; btnEl.disabled = true; }
+        try {
+            const res = await fetch(`__ADMIN_BASE__/nodes/delete?ip=${encodeURIComponent(ip)}`, { method: 'POST' }); if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; }
+            if (res.ok || res.status === 404) {
+                if (nodeQuotaData[ip]) delete nodeQuotaData[ip];
+                if (nodeQuotaData[name]) delete nodeQuotaData[name];
+                if (document.getElementById('left-net-menu').classList.contains('open')) renderNetNodes();
+
+                window.deletedNodesLocCache = window.deletedNodesLocCache || {};
+                if (trueNodesMap[name]) window.deletedNodesLocCache[name] = trueNodesMap[name]; if (trueNodesMap[ip]) window.deletedNodesLocCache[ip] = trueNodesMap[ip];
+                delete trueNodesMap[name]; delete trueNodesMap[ip];
+                if (nodeMarkers[name]) { map.removeLayer(nodeMarkers[name]); delete nodeMarkers[name]; } if (elbowLines[name]) delete elbowLines[name];
+                document.querySelectorAll('.node-cb').forEach(cb => { if (cb.value === name || cb.value === ip) { const label = cb.closest('label'); if (label) label.remove(); } });
+                let idx = currentFilters.indexOf(name); if (idx !== -1) currentFilters.splice(idx, 1); idx = currentFilters.indexOf(ip); if (idx !== -1) currentFilters.splice(idx, 1);
+                const selCountText = currentFilters.includes('All') ? texts.global : (currentFilters.length > 0 ? currentFilters.join(', ') : 'None'); document.querySelectorAll('.btn-text').forEach(el => el.innerText = '⚡ ' + selCountText);
+                delete nodeHits[name]; delete nodeHits[ip];
+                currentStats = Array.from(statsMap.values()).filter(s => s[7] !== name && s[7] !== ip); globalHistory = globalHistory.filter(h => h[3] !== name && h[3] !== ip); rebuildStatsMap(); refreshNodeLayout(); applyFilters(false);
+                if (btnEl) btnEl.closest('tr').remove(); rejectedNodes.add(ip); rejectedNodes.add(name); window.NodeStream?.remove(ip); suspendedNodesMap.delete(name); renderSuspendedList();
+            } else { if(btnEl) { btnEl.innerText = '❌ Err'; btnEl.disabled = false; } }
+        } catch(e) { if(btnEl) { btnEl.innerText = '❌ Err'; btnEl.disabled = false; } }
+    }
+
+    async function renameNode(ip, safeId, oldName, event) {
+        if(event) event.preventDefault(); 
+        if (ip === 'Direct Access' || oldName === 'Direct Access') { alert('⚠️ 系统默认节点受到底层保护，不可修改！'); return; }
+        
+        const input = document.getElementById('name-' + safeId); const locInput = document.getElementById('locip-' + safeId); const btn = document.getElementById('btn-' + safeId); const displaySpan = document.getElementById('display-name-' + safeId);
+        const newName = input ? input.value.trim() : ''; const locIp = locInput ? locInput.value.trim() : ''; 
+        if(!newName || (newName === oldName && !locIp)) return; 
+        btn.innerText = 'Wait...'; btn.style.opacity = '0.5';
+        try {
+            const res = await fetch(`__ADMIN_BASE__/nodes/rename?ip=${encodeURIComponent(ip)}&name=${encodeURIComponent(newName)}&loc_ip=${encodeURIComponent(locIp)}`, { method: 'POST' }); if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; }
+            if (res.ok) {
+                const geoData = await res.json(); currentStats = Array.from(statsMap.values()); btn.innerText = '✅ OK'; btn.style.background = '#4ade80'; btn.style.color = '#020617'; if(displaySpan) displaySpan.innerText = newName; 
+                
+                if (nodeQuotaData[ip]) nodeQuotaData[ip].name = newName;
+                nodeAliases[ip] = newName; nodeAliases[oldName] = newName; window.NodeStream?.rename(ip,newName);
+                if (document.getElementById('left-net-menu').classList.contains('open')) renderNetNodes();
+
+                if (geoData && geoData.updated_geo && geoData.lat !== 0 && geoData.lon !== 0) { trueNodesMap[oldName] = [geoData.lat, geoData.lon]; }
+                document.querySelectorAll('.node-cb').forEach(cb => { if (cb.value === oldName || cb.value === ip) { cb.value = newName; if (cb.nextElementSibling) cb.nextElementSibling.innerText = " 📌 " + newName; } });
+                if (newName !== oldName) {
+                    let idx = currentFilters.indexOf(oldName); if (idx !== -1) currentFilters[idx] = newName; idx = currentFilters.indexOf(ip); if (idx !== -1) currentFilters[idx] = newName;
+                    const safeNewName = newName.replace(/'/g, "\\'"); btn.setAttribute('onclick', `renameNode('${ip}', '${safeId}', '${safeNewName}', event)`);
+                    const deleteBtn = btn.nextElementSibling; if(deleteBtn && deleteBtn.classList.contains('danger-btn')) { deleteBtn.setAttribute('onclick', `deleteNode('${ip}', '${safeNewName}', this, event)`); }
+                    if (nodeHits[oldName] !== undefined) { nodeHits[newName] = nodeHits[oldName]; delete nodeHits[oldName]; } if (nodeMarkers[oldName]) { nodeMarkers[newName] = nodeMarkers[oldName]; delete nodeMarkers[oldName]; } if (trueNodesMap[oldName]) { trueNodesMap[newName] = trueNodesMap[oldName]; delete trueNodesMap[oldName]; }
+                    currentStats.forEach(s => { if (s[7] === oldName || s[7] === ip) s[7] = newName; }); globalHistory.forEach(h => { if (h[3] === oldName || h[3] === ip) h[3] = newName; });
+                }
+                const selCountText = currentFilters.includes('All') ? texts.global : currentFilters.join(', '); document.querySelectorAll('.btn-text').forEach(el => el.innerText = '⚡ ' + selCountText);
+                rebuildStatsMap(); refreshNodeLayout(); applyFilters(false); 
+            } else { btn.innerText = '❌ Err'; btn.style.background = '#ef4444'; }
+        } catch(e) { btn.innerText = '❌ Err'; btn.style.background = '#ef4444'; }
+        btn.style.opacity = '1'; setTimeout(() => { btn.innerText = isZh ? '修改并定位' : 'Save & Locate'; btn.style.background = '#06b6d4'; btn.style.color = '#030712'; }, 2000);
+    }
+
+    // 🗺️ CARTO 底图 API 密钥与瓦片层动态配置
+    const envMapApiKey = "{{ map_api_key }}".trim();
+    const envMapTileUrl = "{{ map_tile_url }}".trim();
+
+    function getActiveCartoKey() {
+        const localKey = (localStorage.getItem('custom_carto_api_key') || '').trim();
+        return localKey || envMapApiKey;
+    }
+
+    function buildTileUrl() {
+        if (envMapTileUrl) return envMapTileUrl;
+        const key = getActiveCartoKey();
+        if (key) {
+            return `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(key)}`;
+        }
+        return 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    }
+
+    function renderMapKeyStatus() {
+        const statusBox = document.getElementById('map-key-status-box');
+        const dot = document.getElementById('map-status-dot');
+        const badge = document.getElementById('map-status-badge');
+        const desc = document.getElementById('map-status-desc');
+        const liveInput = document.getElementById('live-carto-key-input');
+        if (!statusBox || !dot || !badge || !desc) return;
+        
+        const localKey = (localStorage.getItem('custom_carto_api_key') || '').trim();
+
+        if (liveInput) {
+            if (localKey) {
+                liveInput.value = localKey;
+            } else if (envMapApiKey) {
+                liveInput.value = '';
+                liveInput.placeholder = "已从 .env 加载: " + envMapApiKey.slice(0, 6) + "******";
+            }
+        }
+
+        if (envMapTileUrl) {
+            dot.style.background = '#06b6d4';
+            badge.style.background = 'rgba(6,182,212,0.1)';
+            badge.style.borderColor = 'rgba(6,182,212,0.3)';
+            badge.style.color = '#38bdf8';
+            badge.innerText = '自定义瓦片服务';
+            desc.innerHTML = `当前正在使用 <b>MAP_TILE_URL</b> 外部瓦片地址：<br><code style="color:#06b6d4; font-size:11px; word-break:break-all;">${envMapTileUrl}</code>`;
+        } else if (localKey) {
+            dot.style.background = '#a855f7';
+            badge.style.background = 'rgba(168,85,247,0.1)';
+            badge.style.borderColor = 'rgba(168,85,247,0.3)';
+            badge.style.color = '#c084fc';
+            badge.innerText = '前端测试覆盖生效中';
+            desc.innerHTML = `当前正在使用前端即时测试密钥：<code>${localKey.slice(0, 6)}******</code>。<br>测试通过后，请将其填入 <b>.env</b> 的 <code>CARTO_API_KEY</code> 中永久生效。`;
+        } else if (envMapApiKey) {
+            dot.style.background = '#10b981';
+            badge.style.background = 'rgba(16,185,129,0.1)';
+            badge.style.borderColor = 'rgba(16,185,129,0.3)';
+            badge.style.color = '#4ade80';
+            badge.innerText = '已通过 .env 生效';
+            desc.innerHTML = `已成功从 Docker 环境变量加载 <code>CARTO_API_KEY</code>：<code>${envMapApiKey.slice(0, 6)}******</code>。<br>底图瓦片正常加载，无 "API KEY REQUIRED" 水印。`;
+        } else {
+            dot.style.background = '#f59e0b';
+            badge.style.background = 'rgba(245,158,11,0.1)';
+            badge.style.borderColor = 'rgba(245,158,11,0.3)';
+            badge.style.color = '#fbbf24';
+            badge.innerText = '未配置密钥';
+            desc.innerHTML = `尚未在 <b>.env</b> 中设置 <code>CARTO_API_KEY</code>。<br>CARTO 底图将附带 <code>API KEY REQUIRED</code> 水印文字。请参考下方说明进行配置。`;
+        }
+    }
+
+    function applyLiveMapKey() {
+        const input = document.getElementById('live-carto-key-input');
+        const val = input ? input.value.trim() : '';
+        if (!val) {
+            alert('请输入有效的 CARTO API Key');
+            return;
+        }
+        localStorage.setItem('custom_carto_api_key', val);
+        if (window.baseTileLayer) {
+            window.baseTileLayer.setUrl(buildTileUrl());
+            document.getElementById('map').classList.toggle('osm-dark',buildTileUrl().includes('tile.openstreetmap.org'));
+        }
+        renderMapKeyStatus();
+        checkMapKeyPill();
+        alert('✅ 已应用测试密钥！地图瓦片已热重载。若正常显示，请将其写入 .env 永久生效。');
+    }
+
+    function clearLiveMapKey() {
+        localStorage.removeItem('custom_carto_api_key');
+        const input = document.getElementById('live-carto-key-input');
+        if (input) input.value = '';
+        if (window.baseTileLayer) {
+            window.baseTileLayer.setUrl(buildTileUrl());
+            document.getElementById('map').classList.toggle('osm-dark',buildTileUrl().includes('tile.openstreetmap.org'));
+        }
+        renderMapKeyStatus();
+        checkMapKeyPill();
+        alert('已清除前端测试 Key，恢复使用环境变量配置。');
+    }
+
+    function checkMapKeyPill() {
+        const pill = document.getElementById('map-key-warning-pill');
+        if (!pill) return;
+        const hasKey = !!(getActiveCartoKey() || envMapTileUrl);
+        const dismissed = sessionStorage.getItem('dismiss_carto_warning') === 'true';
+        if (!hasKey && !dismissed) {
+            pill.style.display = 'flex';
+        } else {
+            pill.style.display = 'none';
+        }
+    }
+
+    const mapCanvas = L.canvas({ padding: 0.2 }); const mapSvg = L.svg(); const initialZoom = TrafficRuntime.coverZoom(innerWidth,innerHeight,isMobile?2.5:0);
+    let initialCenter=L.latLng(20,isMobile?Number('{{ lon }}')+Coastline.direction(Number('{{ lat }}'),Number('{{ lon }}'))*30:15);
+    initialCenter=coverMapCenter(initialCenter,initialZoom,L.point(innerWidth,innerHeight));
+    const worldBounds = L.latLngBounds(L.latLng(-85.0511287798, -180), L.latLng(85.0511287798, 180));
+    const map = L.map('map',{ renderer: mapCanvas, zoomControl: false, zoomAnimation: true, fadeAnimation: true, markerZoomAnimation: true, wheelPxPerZoomLevel: 120, bounceAtZoomLimits: false, maxBoundsViscosity: 1.0, worldCopyJump: false, maxBounds:worldBounds, minZoom:TrafficRuntime.worldZoom(innerWidth,innerHeight), zoomSnap: 0.25, dragging:true, scrollWheelZoom:true, doubleClickZoom:true, touchZoom:true, boxZoom:true, keyboard:true, preferCanvas: true, trackResize: true }).setView(initialCenter,initialZoom);
+    window.baseTileLayer = L.tileLayer(buildTileUrl(), { subdomains: 'abcd', keepBuffer: 2, updateWhenZooming: false, updateWhenIdle: true, minZoom: 0, maxZoom: 18, noWrap:true, bounds:worldBounds, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank">CARTO</a>' }).addTo(map);
+    document.getElementById('map').classList.toggle('osm-dark',buildTileUrl().includes('tile.openstreetmap.org'));
+    window.elbowLayer = L.layerGroup().addTo(map);
+
+    window.TrajectoryPool = createTrajectoryLayer(map, L, { ...renderLimits, resolveTarget: node => trueNodesMap[canonicalNode(node)], onCapacity: scheduleLiveDrain, onNodeActivity: updateNodeActivity, onVisitorActivity: updateVisitorActivity });
+    window.TrajectoryPool.setHistoryVisible(showHistPath);
+
+    function updateTrackWidth() {
+        let z = map.getZoom(); let baseW = Math.max(0.3, z * 0.15); let activeW = Math.max(1.0, z * 0.5);
+        document.getElementById('map-container').style.setProperty('--track-weight', baseW + 'px'); document.getElementById('map-container').style.setProperty('--track-active-weight', activeW + 'px');
+    }
+    map.on('zoom', updateTrackWidth); updateTrackWidth(); map.on('zoomstart movestart', function() { document.body.classList.add('is-interacting'); }); map.on('zoomend moveend resize', function() { document.body.classList.remove('is-interacting'); scheduleNodeLayout(); });
+    map.on('resize',()=>refreshMapCover());
+    setTimeout(smoothInvalidateSize, 500);
+
+    function getTruePos(serverName) { 
+        const name = canonicalNode(serverName);
+        if (trueNodesMap[name]) return trueNodesMap[name];
+        return fixZeroPos("{{ lat }}", "{{ lon }}"); 
+    }
+    
+
+    
+    let cluster = L.markerClusterGroup({ 
+        chunkedLoading: false, zoomToBoundsOnClick:false, spiderfyOnMaxZoom:false,
+        animate: !matchMedia('(prefers-reduced-motion:reduce)').matches, animateAddingMarkers: false, removeOutsideVisibleBounds: true, maxClusterRadius: 55,
+        iconCreateFunction: function(c) {
+            let totalHits = 0;
+            c.getAllChildMarkers().forEach(m => { totalHits += (m._hits || 1); });
+            
+            const targetHits = totalHits, oldHits = Number(c._icon?.querySelector('.odometer-bubble')?.dataset.current ?? c._lastTotalHits ?? totalHits);
+            c._lastTotalHits = targetHits;
+
+            let color = '#10b981';
+            let bgGlow = 'rgba(16, 185, 129, 0.25)';
+            let borderGlow = 'rgba(16, 185, 129, 0.5)';
+            let shadow = 'rgba(16, 185, 129, 0.4)';
+
+            if (totalHits >= 1000) { 
+                color = '#f43f5e'; bgGlow = 'rgba(244, 63, 94, 0.25)'; borderGlow = 'rgba(244, 63, 94, 0.5)'; shadow = 'rgba(244, 63, 94, 0.4)';
+            } else if (totalHits >= 100) { 
+                color = '#f59e0b'; bgGlow = 'rgba(245, 158, 11, 0.25)'; borderGlow = 'rgba(245, 158, 11, 0.5)'; shadow = 'rgba(245, 158, 11, 0.4)';
+            } else if (totalHits >= 10) { 
+                color = '#06b6d4'; bgGlow = 'rgba(6, 182, 212, 0.2)'; borderGlow = 'rgba(6, 182, 212, 0.4)'; shadow = 'rgba(6, 182, 212, 0.3)';
+            }
+
+            if (!showClusterBubble) {
+                return L.divIcon({
+                    html: `<div style="width:10px; height:10px; background-color:${color}; border-radius:50%; box-shadow: 0 0 10px ${color}, inset 0 0 4px rgba(0,0,0,0.8); opacity:0.8;"></div>`,
+                    className: '', 
+                    iconSize: L.point(10, 10), 
+                    iconAnchor: L.point(5, 5)
+                });
+            }
+
+            const size = 30; 
+            const circleStyle = `
+                width: ${size}px;
+                height: ${size}px;
+                background-color: ${bgGlow};
+                border: 1.5px solid ${borderGlow};
+                color: ${color};
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                font-weight: bold;
+                font-family: monospace;
+                font-size: 11px;
+                box-shadow: 0 0 10px ${shadow}, inset 0 0 6px ${shadow};
+                backdrop-filter: blur(3px);
+                text-shadow: 0 0 3px rgba(0,0,0,0.9), 0 0 5px ${color};
+                pointer-events: auto;
+                z-index: 500;
+                position: relative;
+            `;
+
+                return L.divIcon({
+                    html: `<div class="odometer-bubble" style="${circleStyle}" data-val="${targetHits}" data-current="${oldHits}">${Math.round(oldHits)}</div>`,
+                    className: '', 
+                    iconSize: L.point(size, size), 
+                    iconAnchor: L.point(size / 2, size / 2)
+                });
+        }
+    }); 
+    map.addLayer(cluster); window.historyLines = { clearLayers() { window.TrajectoryPool.clearHistory(); } };
+
+    let isSpiderfied = false; cluster.on('spiderfied', function() { isSpiderfied = true; });
+    cluster.on('unspiderfied', function() { isSpiderfied = false; if (markerQueue.length > 0) { cluster.addLayers(markerQueue); markerQueue = []; } scheduleUiUpdate(); });
+
+
+    let odometerFrame = 0;
+    const activeOdometers = new Set();
+    function wakeOdometers() {
+        if (document.hidden) return;
+        for (const el of document.querySelectorAll(showClusterBubble?'.odometer-bubble, .bubble-hits-count[data-val]':'.bubble-hits-count[data-val]')) {
+            if (el.dataset.current !== el.dataset.val) activeOdometers.add(el);
+        }
+        if (activeOdometers.size && !odometerFrame) odometerFrame = requestAnimationFrame(animateOdometers);
+    }
+    function animateOdometers() {
+        odometerFrame = 0;
+        if (document.hidden) { activeOdometers.clear(); return; }
+        const reduced = matchMedia('(prefers-reduced-motion:reduce)').matches;
+        for (const el of activeOdometers) {
+            if (!el.isConnected) { activeOdometers.delete(el); continue; }
+            const target = Number(el.dataset.val), current = Number(el.dataset.current), diff = target - current;
+            const next = reduced || Math.abs(diff) <= .5 ? target : current + diff * .15;
+            el.dataset.current = String(next); el.textContent = Math.round(next).toLocaleString();
+            if (next === target) activeOdometers.delete(el);
+        }
+        if (activeOdometers.size) odometerFrame = requestAnimationFrame(animateOdometers);
+    }
+    map.on('moveend zoomend', wakeOdometers);
+
+
+
+    let activeFocusPath = null, activeRadarPing = null; const geoCache = new TrafficRuntime.BoundedMap(24);
+
+    async function fetchGeo(query, threshold) {
+        if (!query || query === 'Unknown') return null; const cacheKey = query + threshold; if(geoCache.has(cacheKey)) return geoCache.get(cacheKey);
+        try { const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&polygon_geojson=1&format=json&limit=1&polygon_threshold=${threshold}`); const data = await res.json(); if(data && data.length > 0 && data[0].geojson) { const feature = { type: "Feature", geometry: data[0].geojson }; geoCache.set(cacheKey, feature); return feature; } } catch(e) {} return null;
+    }
+
+    window.focusPath = function(vLat, vLon, ipStr, locationStr, serverName, isAuto = false) {
+        let fPos = fixZeroPos(vLat, vLon);
+        vLat = fPos[0]; vLon = fPos[1];
+
+        if (isAuto) return;
+        if(activeFocusPath) map.removeLayer(activeFocusPath); if(activeRadarPing) map.removeLayer(activeRadarPing); if(vLat === 0 && vLon === 0) return; 
+        const tPos = getTruePos(serverName); const hits = nodeHits[serverName] || 1; const cColor = getNodeBaseColor(serverName, hits);
+        const group = L.layerGroup().addTo(map);
+        
+        L.polyline([[vLat,vLon],tPos],{renderer:mapCanvas,color:cColor,weight:1,opacity:.65,interactive:false}).addTo(group);
+        
+        activeFocusPath = group;
+        activeRadarPing = L.circle([vLat, vLon], { renderer: mapCanvas, radius: 250000, color: cColor, weight: 2, fillColor: cColor, fillOpacity: 0.2, interactive: false }).addTo(map);
+        if(!isAuto && document.fullscreenElement && isMobile && isSidebarOpen) { toggleSidebar(); }
+    };
+
+    const suspendedNodesMap = new Map(); 
+    function suspendNode(nodeName) { if (suspendedNodesMap.size >= 100) return; if (!suspendedNodesMap.has(nodeName)) { suspendedNodesMap.set(nodeName, { hits: 1 }); renderSuspendedList(); } }
+
+    function renderSuspendedList() {
+        const tbody = document.getElementById('suspended-list'); if (!tbody) return;
+        if (suspendedNodesMap.size === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:20px; color:#64748b;">暂无挂起节点</td></tr>'; return; }
+        let html = ''; suspendedNodesMap.forEach((info, name) => {
+            const enc = encodeURIComponent(name).replace(/'/g, "%27");
+            html += `<tr><td style="color:#f59e0b; font-weight:bold; padding:12px 15px;">${escHtml(name)}</td><td style="color:#94a3b8; font-family:monospace; padding:12px 15px;">${info.hits}</td><td style="padding:12px 15px;"><button class="primary-btn" style="padding:6px 12px; font-size:12px;" onclick="restoreNode(decodeURIComponent('${enc}'), event)">恢复接纳</button></td></tr>`;
+        }); tbody.innerHTML = html;
+    }
+
+    window.restoreNode = async function(nodeName, event) {
+        if (event) event.preventDefault(); 
+        try {
+            const res = await fetch(`__ADMIN_BASE__/nodes/add?name=${encodeURIComponent(nodeName)}`, { method: 'POST' }); let geoData = null; if (res.ok) { geoData = await res.json(); }
+            
+            if (!nodeQuotaData[nodeName]) {
+                nodeQuotaData[nodeName] = { quota_bytes: 0, rx_bytes: 0, tx_bytes: 0, reset_day: 1, mode: 'total', name: nodeName };
+            }
+            if (document.getElementById('left-net-menu').classList.contains('open')) renderNetNodes();
+
+            window.NodeStream?.sync(true);
+            suspendedNodesMap.delete(nodeName); window.deletedNodesLocCache = window.deletedNodesLocCache || {};
+            if (geoData && geoData.lat !== 0 && geoData.lon !== 0) { trueNodesMap[nodeName] = [geoData.lat, geoData.lon]; } else { trueNodesMap[nodeName] = window.deletedNodesLocCache[nodeName] || fixZeroPos("{{ lat }}", "{{ lon }}"); }
+            rejectedNodes.delete(nodeName);
+            document.querySelectorAll('.multi-sel-menu').forEach(filterMenu => {
+                const escapedName = CSS.escape(nodeName); const exists = filterMenu.querySelector(`.node-cb[value="${escapedName}"]`);
+                if (!exists) { const applyBtn = filterMenu.querySelector('.apply-btn'); const newLabel = document.createElement('label'); newLabel.innerHTML = `<input type="checkbox" class="node-cb" value="${escHtml(nodeName)}" checked onchange="updateAllCb()"><span> 📌 ${escHtml(nodeName)}</span>`; filterMenu.insertBefore(newLabel, applyBtn); }
+            });
+            if(!currentFilters.includes('All') && !currentFilters.some(name => canonicalNode(name) === nodeName)) { currentFilters.push(nodeName); }
+            const oldToast = document.getElementById(`toast-${nodeName}`); if (oldToast) oldToast.remove();
+            const nodesTbody = document.getElementById('nodes-tbody');
+            if (nodesTbody) {
+                const encName = encodeURIComponent(nodeName).replace(/'/g, "%27");
+                const safeIpId = nodeName.replace(/[^a-zA-Z0-9]/g, "-");
+                if (!document.getElementById(`row-${safeIpId}`)) {
+                    const newRow = document.createElement('tr'); newRow.id = `row-${safeIpId}`;
+                    newRow.innerHTML = `<td><code>${escHtml(nodeName)}</code></td><td>${trueNodesMap[nodeName][0].toFixed(4)}, ${trueNodesMap[nodeName][1].toFixed(4)}</td><td><span id='display-name-${safeIpId}' style='color:#4ade80;font-weight:bold;'>${escHtml(nodeName)}</span></td><td><div style='display:flex;gap:5px;flex-wrap:wrap;'><input type='text' id='name-${safeIpId}' value='${escHtml(nodeName)}' placeholder='Rename' style='width:100px;'><input type='text' id='locip-${safeIpId}' placeholder='Real Public IP' title='Fix 0,0' style='width:150px;'><button type='button' id='btn-${safeIpId}' class='primary-btn' style='padding:6px 12px;' onclick='renameNode(decodeURIComponent(\"${encName}\"), \"${safeIpId}\", decodeURIComponent(\"${encName}\"), event)'>Save & Locate</button><button type='button' class='danger-btn' style='padding:6px 12px;' onclick='deleteNode(decodeURIComponent(\"${encName}\"), decodeURIComponent(\"${encName}\"), this, event)'>Remove</button></div></td><td class='utc'>Just now</td>`;
+                    nodesTbody.prepend(newRow); 
+                }
+            }
+            renderSuspendedList(); refreshNodeLayout(); const selCountText = currentFilters.includes('All') ? texts.global : currentFilters.join(', '); document.querySelectorAll('.btn-text').forEach(el => el.innerText = '⚡ ' + selCountText);
+        } catch(e) { console.error("Failed to add node", e); }
+    };
+
+    function handleNewNodeWarning(data) {
+        const nodeName = data.server_name; if (document.getElementById(`toast-${nodeName}`)) return; if (rejectedNodes.has(nodeName) || rejectedNodes.has(data.ip)) return;
+        const toast = document.createElement('div'); toast.id = `toast-${nodeName}`; toast.className = 'cyber-toast';
+        const encToastName = encodeURIComponent(nodeName).replace(/'/g, "%27");
+        toast.innerHTML = `<div style="font-weight:bold; color:#f59e0b; margin-bottom:5px;">⚠️ 拦截到未授权节点</div><div>节点: <b style="color:#06b6d4">${escHtml(nodeName)}</b></div><div style="font-size:11px; color:#94a3b8; margin-top:4px;">已被自动隔离至[设置-挂起节点]</div><div class="actions"><button class="toast-btn-yes" onclick="restoreNodeFromToast(decodeURIComponent('${encToastName}'), this, event)">允许接纳</button><button class="toast-btn-no" onclick="this.closest('.cyber-toast').remove(); event.preventDefault();">关闭提示</button></div>`;
+        const container = document.getElementById('toast-container'); if (container.children.length >= 4) container.firstElementChild.remove(); container.appendChild(toast);
+    }
+    window.restoreNodeFromToast = function(nodeName, btnEl, event) { if(event) event.preventDefault(); restoreNode(nodeName); const toastEl = btnEl.closest('.cyber-toast'); if (toastEl) toastEl.remove(); };
+
+    {{ stream_js|safe }}
+
+    let ws = null;
+    function connect() {
+        if (ws && ws.readyState !== WebSocket.CLOSED) return;
+        ws = new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}__ADMIN_BASE__/ws`);
+        ws.binaryType = "arraybuffer";
+        
+        ws.onopen = () => { NodeStream.connected();document.getElementById('ws-tag').style.color='#4ade80'; document.getElementById('ws-tag').innerText='● CONNECTED'; };
+        
+        ws.onmessage = (e) => {
+            if (e.data === 'resync') { streamGap = true; scheduleUiUpdate(); return; }
+            
+            try {
+                const decoded = MessagePack.decode(new Uint8Array(e.data)); 
+                const batch = Array.isArray(decoded) ? decoded : [decoded];
+
+                for (let i = 0; i < batch.length; i++) {
+                    const data = batch[i];
+
+                    if (data.event_type === "system_geo") {
+                        let newLat = data.lat; let newLon = data.lon;
+                        trueNodesMap['Direct Access'] = [newLat, newLon];
+                        const row = document.getElementById('row-Direct-Access');
+                        if (row && row.cells.length > 1) {
+                            row.cells[1].innerText = `${newLat.toFixed(4)}, ${newLon.toFixed(4)}`;
+                        }
+                        refreshNodeLayout(); 
+                        continue;
+                    }
+
+                    if(data.snapshot)NodeStream.apply(data.snapshot);
+                    if(data.event_type === "node")continue;
+                    if (data.event_type === "metrics") {
+                        if (data.name && trueNodesMap[data.name]) nodeAliases[data.ip] = data.name;
+                        if (!nodeQuotaData[data.ip]) {
+                            nodeQuotaData[data.ip] = { 
+                                quota_bytes: 0, rx_bytes: 0, tx_bytes: 0, 
+                                reset_day: 1, mode: 'total', name: data.name 
+                            };
+                            if (document.getElementById('left-net-menu').classList.contains('open')) renderNetNodes();
+                        } else if (nodeQuotaData[data.ip].name !== data.name) {
+                            nodeQuotaData[data.ip].name = data.name;
+                            if (document.getElementById('left-net-menu').classList.contains('open')) renderNetNodes();
+                        }
+                        
+                        updateRealtimeMetrics(data.ip, data.rx_speed, data.tx_speed);
+                        nodeQuotaData[data.ip].rx_speed=data.rx_speed;nodeQuotaData[data.ip].tx_speed=data.tx_speed;
+                        if(!data.snapshot){nodeQuotaData[data.ip].rx_bytes += (data.rx_speed * 2);nodeQuotaData[data.ip].tx_bytes += (data.tx_speed * 2);}
+                        continue;
+                    }
+
+                    NodeStream.visit(data);
+                }
+            } catch (err) {
+                console.error("WS Payload Decode Error:", err);
+            }
+        };
+        
+        ws.onclose = (e) => {
+            streamGap = true; scheduleUiUpdate();NodeStream.disconnected();
+            document.getElementById('ws-tag').innerText = '● RECONNECTING';
+            if (e.reason === "EVICTED") {
+                document.getElementById('ws-tag').style.color = '#ef4444'; 
+                document.getElementById('ws-tag').innerText = '● KICKED OUT';
+                alert('当前会话已被撤销或同一账号的页面数量超过上限，请重新登录。');
+                return; 
+            }
+            setTimeout(connect, 3000); 
+        };
+    }
+    // Seed the initial snapshot before live events arrive, so startup cannot clear their effects.
+    applyFilters(false);
+    connect();
+
+    document.addEventListener('visibilitychange', () => {
+        cancelAnimationFrame(liveFrame); liveFrame = 0;
+        cancelAnimationFrame(pbState.rAF);
+        cancelAnimationFrame(odometerFrame); odometerFrame = 0; activeOdometers.clear();
+        if (document.hidden) { clearTimeout(uiTimer); uiTimer = 0; liveQueue.flush(); return; }
+        map.invalidateSize({animate:false}); wakeOdometers();
+        if (pbState.active) { pbState.lastTime = performance.now(); if (pbState.playing || pbState.seekTarget != null) pbState.rAF = requestAnimationFrame(pbLoop); }
+        else scheduleLiveDrain();
+        if (!ws || ws.readyState === WebSocket.CLOSED) connect();
+        scheduleUiUpdate();
+    });
+
+    (function() {
+        let visitorUuid = localStorage.getItem('cn_v_uuid'); if (!visitorUuid) { visitorUuid = 'v_' + Date.now() + '_' + Math.random().toString(16).slice(2); localStorage.setItem('cn_v_uuid', visitorUuid); }
+        const pageUrl = window.location.href;
+        async function logOp(type, target, details = {}) {
+            const payload = { visitor_uuid: visitorUuid, ip_address: "", operation_type: type, element_id: target, page_url: pageUrl, operation_details: details, op_time: new Date().toISOString() };
+            fetch('/api/log-operation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), keepalive: true }).catch(() => {});
+        }
+        document.addEventListener('click', (e) => { const target = e.target; const id = target.id || target.className || target.tagName; const text = (target.innerText || target.value || "").slice(0, 50).trim(); logOp('click', id, { text: text }); }, true);
+        document.addEventListener('focus', (e) => { const target = e.target; if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') { const id = target.id || target.name || target.className; logOp('focus', id); } }, true);
+    })();
+
+    
+    // === NEW CYBER DASHBOARD LOGIC ===
+    function returnToDashboard(event) { event?.preventDefault(); event?.stopPropagation(); switchDashMode('dashboard'); }
+    function switchDashMode(mode) {
+        const overview=mode==='dashboard';
+        if(isSidebarOpen)toggleSidebar();
+        document.body.classList.toggle('show-dashboard',overview);
+        const dashboard=document.getElementById('cyber-dashboard');dashboard.inert=!overview;dashboard.setAttribute('aria-hidden',String(!overview));
+        document.getElementById('map-container').inert=overview;
+        document.getElementById('nav-btn-map')?.classList.toggle('active',!overview);
+        document.getElementById('nav-btn-dash')?.classList.toggle('active',overview);
+        closeRightMenu();document.getElementById('left-net-menu').classList.remove('open');
+        if(isMobile)toggleMobileDrawer(false);
+        requestAnimationFrame(()=>{if(overview){lastDashboardUpdate=-1000;updateDashboard();}else{refreshNodeLayout();scheduleUiUpdate();document.querySelector(isMobile?'[data-mobile-view=map]':'#nav-btn-map')?.focus({preventScroll:true});}});
+    }
+
+    let dashPieChart, dashBarChart;
+    document.addEventListener('DOMContentLoaded', () => {
+        switchDashMode('map');
+        if (typeof checkMapKeyPill === 'function') checkMapKeyPill();
+    });
+    function updateDashboard() {
+        if (document.hidden || performance.now() - lastDashboardUpdate < 1000) return;
+        lastDashboardUpdate = performance.now();
+        document.getElementById('mobile-visits').textContent = statsMap.size.toLocaleString();
+        document.getElementById('mobile-node-count').textContent = Object.keys(trueNodesMap).length;
+        const mobileStatus=document.getElementById('mobile-stream-status');mobileStatus.textContent=pbState.active?(isZh?'回放':'REPLAY'):ws?.readyState===1?'LIVE':(isZh?'连接中':'CONNECTING');mobileStatus.dataset.live=String(ws?.readyState===1&&!pbState.active);
+        document.getElementById('map-node-count').textContent=Object.keys(trueNodesMap).length;
+        document.getElementById('map-live-status').textContent=ws?.readyState===1?'LIVE':(isZh?'连接中':'CONNECTING');
+        if(document.body.classList.contains('show-dashboard')&&!document.body.classList.contains('globe-fullscreen'))window.OverviewDashboard?.render();
+    }
+    setInterval(updateDashboard, 1000);
+    {{ overview_js|safe }}
+
+</script>
+</body></html>

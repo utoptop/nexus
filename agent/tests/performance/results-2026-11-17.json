@@ -1,0 +1,115 @@
+{
+  "date": "2026-11-17",
+  "platform": "Docker Desktop / linux/arm64",
+  "conditions": {
+    "cpu_quota": 1,
+    "container_memory_limit_mib": 256,
+    "sources": 2,
+    "events": 1000000,
+    "batch_size": 500,
+    "sqlite_synchronous": "FULL",
+    "receiver": "separate local HTTP ACK fixture; not real iplogger/PostgreSQL",
+    "source_format": "short TRACK_L7 lines via Docker-compatible multiplexed API",
+    "memory_metric": "Docker stats working-set samples (subtracts inactive_file); not total RSS or an absolute memory bound"
+  },
+  "baseline_digest": "sha256:6a8c2fa4f89ca45c409421b3bc78278cb3b6f373411e317db12ce1c4691c4163",
+  "candidate_local_digest": "sha256:746c40e52c1dcbbda8b132b5d25ed8991101cd4edce5898e0f09b6c02a97baa8",
+  "runs": [
+    {
+      "image": "utoptop/logger-agent:1.2",
+      "containers": 2,
+      "cpu_quota": 1,
+      "batch_size": 500,
+      "events": 1000000,
+      "elapsed_s": 17.238,
+      "events_per_s": 58012,
+      "idle": {
+        "working_set_mib": 29.69,
+        "cpu_percent": 0.21,
+        "pids": 24
+      },
+      "sampled_peak_working_set_mib": 32.97,
+      "sampled_peak_pids": 26,
+      "samples": [
+        {
+          "working_set_mib": 32.52,
+          "cpu_percent": 68.99,
+          "pids": 24
+        },
+        {
+          "working_set_mib": 32.79,
+          "cpu_percent": 83.29,
+          "pids": 25
+        },
+        {
+          "working_set_mib": 32.51,
+          "cpu_percent": 85.03,
+          "pids": 26
+        },
+        {
+          "working_set_mib": 32.7,
+          "cpu_percent": 84.67,
+          "pids": 26
+        },
+        {
+          "working_set_mib": 32.46,
+          "cpu_percent": 85.27,
+          "pids": 26
+        },
+        {
+          "working_set_mib": 32.95,
+          "cpu_percent": 84.18,
+          "pids": 26
+        },
+        {
+          "working_set_mib": 32.97,
+          "cpu_percent": 86.17,
+          "pids": 26
+        },
+        {
+          "working_set_mib": 32.78,
+          "cpu_percent": 86.35,
+          "pids": 26
+        },
+        {
+          "working_set_mib": 32.0,
+          "cpu_percent": 0.27,
+          "pids": 26
+        }
+      ]
+    },
+    {
+      "image": "logger-agent:performance-local",
+      "containers": 2,
+      "cpu_quota": 1,
+      "batch_size": 500,
+      "events": 1000000,
+      "elapsed_s": 5.762,
+      "events_per_s": 173540,
+      "idle": {
+        "working_set_mib": 2.457,
+        "cpu_percent": 0.13,
+        "pids": 3
+      },
+      "sampled_peak_working_set_mib": 3.996,
+      "sampled_peak_pids": 3,
+      "samples": [
+        {
+          "working_set_mib": 3.996,
+          "cpu_percent": 7.87,
+          "pids": 3
+        },
+        {
+          "working_set_mib": 3.945,
+          "cpu_percent": 18.34,
+          "pids": 3
+        },
+        {
+          "working_set_mib": 3.945,
+          "cpu_percent": 2.25,
+          "pids": 3
+        }
+      ]
+    }
+  ]
+}

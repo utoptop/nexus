@@ -1,0 +1,299 @@
+{% if part == "css" %}
+/* ================== MOBILE UI OVERRIDES (BOTTOM DRAWER) ================== */
+/* 🚀 核心优化：增加对横屏(landscape)的判定，彻底阻断移动端横屏加载桌面版UI */
+@media (max-width: 768px), (max-height: 500px) and (orientation: landscape) { 
+    .desktop-only { display: none !important; }
+    .mobile-only { display: flex !important; }
+    
+    .hide-mobile { display: none; } 
+    /* 🌟 极致压缩头部元素，为底部列表腾出空间 */
+    th,td { padding: 8px 4px; font-size:11px; } 
+    .hm-box { width:100%; height:60px; margin-top: 5px; } 
+    .top-bar-wrap { padding: 8px 12px 0 12px !important; }
+    .v-header { padding: 10px 12px !important; font-size: 11px !important; }
+    .v-row { padding: 0 12px !important; height: 46px !important; margin: 2px 4px !important; border-radius: 10px !important; }
+    .c-time { font-size: 10px !important; }
+    
+    /* 左下角 FAB */
+    .mobile-fab {
+        position: fixed; bottom: 24px; left: 18px;
+        background: rgba(11, 15, 25, 0.9);
+        border: 1px solid rgba(6, 182, 212, 0.5);
+        color: #06b6d4; padding: 10px 20px; border-radius: 100px;
+        font-weight: 600; font-size: 13px; z-index: 8000;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(6, 182, 212, 0.2);
+        backdrop-filter: blur(20px); cursor: pointer; pointer-events: auto;
+        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+        transform-origin: bottom left;
+        letter-spacing: 0.3px;
+    }
+    .mobile-fab:active { transform: scale(0.92); }
+    
+    /* 暗色遮罩 */
+    #mobile-overlay {
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(0,0,0,0.5); z-index: 8900; 
+        opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
+        backdrop-filter: blur(4px);
+    }
+    #mobile-overlay.show { opacity: 1; pointer-events: auto; display: block !important; }
+
+    /* 底部抽屉面板 */
+    .panel {
+        position: fixed; top: 0 !important; bottom: auto !important; left: 0; width: 100vw;
+        height: calc(100dvh - 10px) !important;
+        transform: translate3d(0, 100vh, 0);
+        border-radius: 24px 24px 0 0;
+        z-index: 9000;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        border-left: 1px solid rgba(255, 255, 255, 0.05);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+        background: rgba(11, 15, 25, 0.92);
+        backdrop-filter: blur(30px) saturate(150%);
+        flex-direction: column;
+        pointer-events: auto;
+        display: flex;
+        box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.8);
+        margin: 0 !important;
+    }
+
+    /* 顶部拖拽把手 */
+    .mobile-handle {
+        position: relative;
+        width: 100%; height: 32px; display: flex !important; justify-content: center; align-items: center;
+        cursor: grab; flex: none; border-radius: 24px 24px 0 0; background: transparent;
+    }
+    .mobile-handle:active { cursor: grabbing; }
+    .mobile-handle::after {
+        content: ''; width: 40px; height: 3px; background: rgba(255, 255, 255, 0.2); border-radius: 3px;
+    }
+
+    #drawer-close-btn {
+        position: absolute; right: 15px; top: 50%; transform: translateY(-50%);
+        color: #475569; display: flex; justify-content: center; align-items: center;
+        padding: 5px; cursor: pointer; transition: color 0.2s;
+    }
+    #drawer-close-btn:active { color: #06b6d4; }
+
+    /* 移动端网格按钮 */
+    .mobile-controls {
+        display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 8px;
+        padding: 0 15px 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.04);
+        flex: none; pointer-events: auto;
+    }
+    .mobile-controls .btn {
+        text-align: center; padding: 10px 4px; font-size: 11px;
+        display: flex; justify-content: center; align-items: center;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        border-radius: 12px !important;
+    }
+    
+    /* 回放控制条 */
+    .cyber-playback-bar { 
+        top: 15px !important; bottom: auto !important; left: 50% !important;
+        transform: translate3d(-50%, 0, 0) !important;
+        width: 90% !important; max-width: 340px !important;
+        flex-direction: column !important; z-index: 9500 !important; 
+        padding: 12px 15px !important; border-radius: 16px !important;
+        background: rgba(11, 15, 25, 0.95) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
+        box-sizing: border-box !important;
+    }
+    .cyber-playback-bar > div:first-child { 
+        width: 100% !important; justify-content: center !important;
+        gap: 12px !important; margin-bottom: 8px !important; flex-wrap: wrap !important;
+    }
+    .cyber-playback-bar > div:last-child { width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; }
+    #pb-speed { padding: 4px 8px !important; font-size: 12px !important; }
+    #pb-play-btn, .danger-btn { padding: 6px 14px !important; font-size: 13px !important; }
+    #pb-current-node { font-size: 11px !important; max-width: 90px !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #pb-current { font-size: 11px !important; flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #pb-slider { width: 100% !important; box-sizing: border-box !important; }
+    
+    .domain-panel { width: 90vw; top: 10vh; right: 5vw; bottom: auto; max-height: 50vh; z-index: 9999; }
+    .opacity-ctrl { margin-top: 10px; width: 100%; justify-content: space-between; }
+
+    .multi-sel-menu {
+        position: fixed !important;
+        top: 50% !important; left: 50% !important; bottom: auto !important;
+        width: 85vw !important; max-width: 320px !important; max-height: 60vh !important;
+        z-index: 10000 !important; transform: translate(-50%, -50%) !important;
+        border-radius: 20px !important;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.9) !important;
+    }
+    .multi-sel-menu.show {
+        animation: mobileMenuPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+    }
+    @keyframes mobileMenuPopIn {
+        from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+        to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+
+}
+{% else if part == "js" %}
+// === 移动端多段式抽屉交互 ===
+let drawerY = 0;
+let drawerMode = 'closed';
+let isDraggingDrawer = false;
+let dragStartY = 0;
+let dragStartDrawerY = 0;
+
+function getDrawerSnaps() {
+    const h=innerHeight,full=innerWidth>innerHeight?14:(window.mobileChromeInsets?.top||112);
+    return {closed:h,peek:innerWidth>innerHeight?full:Math.max(full,h*.43),full};
+}
+
+function setDrawerY(y, smooth = false) {
+    if (!isMobile) return;
+    const panel = document.getElementById('data-panel');
+    const fab = document.querySelector('.mobile-fab');
+    const overlay = document.getElementById('mobile-overlay');
+    const snaps = getDrawerSnaps();
+
+    drawerY = y;
+    panel.style.setProperty('--drawer-height',Math.max(120,innerHeight-y-(window.mobileChromeInsets?.bottom||96))+'px');
+    drawerMode=y>=snaps.closed-10?'closed':y<=snaps.full+20?'full':'peek';
+    panel.inert=drawerMode==='closed';panel.setAttribute('aria-hidden',String(panel.inert));
+    document.body.classList.toggle('mobile-sheet-open', y < snaps.closed - 10);
+    
+    if (smooth) {
+        panel.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+    } else {
+        panel.style.transition = 'none';
+    }
+
+    panel.style.transform = `translate3d(0, ${y}px, 0)`;
+
+    if (y >= snaps.closed - 10) {
+        fab.style.transform = 'scale(1)';
+        fab.style.opacity = '1';
+        fab.style.pointerEvents = 'auto';
+        overlay.classList.remove('show');
+        panel.classList.remove('drawer-open');
+    } else {
+        fab.style.transform = 'none';
+        fab.style.opacity = '1';
+        fab.style.pointerEvents = 'auto';
+        overlay.classList.toggle('show', y <= snaps.full + 20);
+        panel.classList.add('drawer-open');
+    }
+}
+
+function toggleMobileDrawer(forceOpen = null) {
+    if (!isMobile) return;
+    if(forceOpen!==false){if(document.body.classList.contains('show-dashboard'))switchDashMode('map');closeRightMenu();}
+    const snaps = getDrawerSnaps();
+    if (forceOpen === true) {
+        setDrawerY(snaps.peek, true);
+    } else if (forceOpen === false) {
+        setDrawerY(snaps.closed, true);
+    } else {
+        if (drawerY >= snaps.closed - 10) setDrawerY(snaps.peek, true);
+        else setDrawerY(snaps.closed, true);
+    }
+}
+
+function initDrawerDrag(e) {
+    if (!isMobile || e.target.closest('button')) return;
+    isDraggingDrawer = true;
+    dragStartY = e.touches[0].clientY;
+    dragStartDrawerY = drawerY;
+}
+
+function doDrawerDrag(e) {
+    if (!isDraggingDrawer || !isMobile) return;
+    e.preventDefault(); 
+    const deltaY = e.touches[0].clientY - dragStartY;
+    let newY = dragStartDrawerY + deltaY;
+    const snaps = getDrawerSnaps();
+    
+    if (newY < snaps.full) {
+        newY = snaps.full - (snaps.full - newY) * 0.15; 
+    }
+    setDrawerY(newY, false);
+}
+
+function endDrawerDrag(e) {
+    if (!isDraggingDrawer || !isMobile) return;
+    isDraggingDrawer = false;
+    
+    const snaps = getDrawerSnaps();
+    const deltaY = drawerY - dragStartDrawerY;
+    let targetY;
+
+    if (deltaY < -20) { 
+        targetY = dragStartDrawerY > snaps.peek + 20 ? snaps.peek : snaps.full;
+    } else if (deltaY > 20) { 
+        targetY = dragStartDrawerY < snaps.peek - 20 ? snaps.peek : snaps.closed;
+    } else { 
+        const dists = [
+            { y: snaps.full, d: Math.abs(drawerY - snaps.full) },
+            { y: snaps.peek, d: Math.abs(drawerY - snaps.peek) },
+            { y: snaps.closed, d: Math.abs(drawerY - snaps.closed) }
+        ];
+        dists.sort((a,b) => a.d - b.d);
+        targetY = dists[0].y;
+    }
+    setDrawerY(targetY, true);
+}
+
+window.addEventListener('resize',()=>{if(isMobile)updateMobileInsets();});
+
+// Navigation has four stable destinations; live traffic never opens an overlay.
+window.mobileChromeInsets={top:112,bottom:96,right:16};
+function updateMobileInsets(){
+    if(!isMobile)return;
+    const landscape=innerWidth>innerHeight,header=document.querySelector('.mobile-topbar').getBoundingClientRect(),nav=document.querySelector('.mobile-fab').getBoundingClientRect();
+    window.mobileChromeInsets={top:landscape?76:Math.ceil(header.bottom)+12,bottom:landscape?16:Math.ceil(innerHeight-nav.top)+12,right:landscape?96:16};
+    const root=document.documentElement;root.style.setProperty('--mobile-top',mobileChromeInsets.top+'px');root.style.setProperty('--mobile-bottom',mobileChromeInsets.bottom+'px');
+    setDrawerY(getDrawerSnaps()[drawerMode],false);window.scheduleNodeLayout?.();
+}
+function mobileNavigate(view){
+    if(view==='more'){
+        const open=document.getElementById('right-menu').classList.contains('open');
+        if(open)closeRightMenu();else{switchDashMode('map');toggleRightMenu();}
+    }else if(view==='visitors'){switchDashMode('map');toggleMobileDrawer(true);}
+    else switchDashMode(view==='overview'?'dashboard':'map');
+}
+function closeMobilePanels(){toggleMobileDrawer(false);closeRightMenu();}
+function syncMobileNavigation(){
+    if(!isMobile)return;
+    const menu=document.getElementById('right-menu').classList.contains('open');
+    const view=menu?'more':document.body.classList.contains('mobile-sheet-open')?'visitors':document.body.classList.contains('show-dashboard')?'overview':'map';
+    if(document.body.classList.contains('mobile-menu-open')!==menu)document.body.classList.toggle('mobile-menu-open',menu);
+    document.querySelectorAll('.mobile-fab [data-mobile-view]').forEach(b=>{const active=b.dataset.mobileView===view;if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
+    const labels=isZh?{map:'实时流量地图',visitors:'实时访客',overview:'流量总览',more:'工具与显示'}:{map:'Live traffic map',visitors:'Visitor activity',overview:'Traffic overview',more:'Tools & display'};
+    document.getElementById('mobile-view-title').textContent=labels[view];
+}
+window.addEventListener('DOMContentLoaded',()=>{
+    const labels=isZh?{map:'地图',visitors:'访客',overview:'总览',more:'更多',expand:'展开',options:'显示选项'}:{map:'Map',visitors:'Visitors',overview:'Overview',more:'More',expand:'Expand',options:'Display'};
+    document.querySelectorAll('[data-mobile-label]').forEach(el=>el.textContent=labels[el.dataset.mobileLabel]);
+    if(!isMobile)return;
+    const handle=document.querySelector('.mobile-handle');handle.addEventListener('touchstart',initDrawerDrag,{passive:false});handle.addEventListener('touchmove',doDrawerDrag,{passive:false});handle.addEventListener('touchend',endDrawerDrag,{passive:false});handle.addEventListener('touchcancel',endDrawerDrag,{passive:false});
+    document.getElementById('menu-title-text').textContent=isZh?'工具与显示':'Tools & display';
+    new MutationObserver(syncMobileNavigation).observe(document.body,{attributes:true,attributeFilter:['class']});
+    new MutationObserver(syncMobileNavigation).observe(document.getElementById('right-menu'),{attributes:true,attributeFilter:['class']});
+    const resize=new ResizeObserver(updateMobileInsets);resize.observe(document.querySelector('.mobile-topbar'));resize.observe(document.querySelector('.mobile-fab'));
+    updateMobileInsets();syncMobileNavigation();
+});
+document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape'||!isMobile||document.body.classList.contains('globe-fullscreen')||document.getElementById('settings-modal').style.display==='flex')return;
+    if(document.getElementById('right-menu').classList.contains('open')){closeRightMenu();document.querySelector('[data-mobile-view="more"]').focus();}
+    else if(document.body.classList.contains('mobile-sheet-open')){toggleMobileDrawer(false);document.querySelector('[data-mobile-view="visitors"]').focus();}
+});
+{% else if part == "overlay" %}
+<div id="mobile-overlay" class="mobile-only" onclick="closeMobilePanels()"></div>
+{% else if part == "fab" %}
+<nav class="mobile-fab mobile-only" aria-label="Mobile navigation">
+<button type="button" data-mobile-view="map" onclick="mobileNavigate('map');event.stopPropagation()" aria-label="Map"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z"/></svg><span data-mobile-label="map">地图</span></button>
+<button type="button" data-mobile-view="visitors" onclick="mobileNavigate('visitors');event.stopPropagation()" aria-label="Visitor activity" class="mobile-activity-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 5"/></svg><span data-mobile-label="visitors">访客</span></button>
+<button type="button" data-mobile-view="overview" onclick="mobileNavigate('overview');event.stopPropagation()" aria-label="Overview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M12 20V4M20 20v-8"/><circle cx="4" cy="6" r="1"/></svg><span data-mobile-label="overview">总览</span></button>
+<button type="button" data-mobile-view="more" onclick="mobileNavigate('more');event.stopPropagation()" aria-label="More" aria-controls="right-menu" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="2"/><rect x="14" y="4" width="6" height="6" rx="2"/><rect x="4" y="14" width="6" height="6" rx="2"/><rect x="14" y="14" width="6" height="6" rx="2"/></svg><span data-mobile-label="more">更多</span></button>
+</nav>
+{% else if part == "controls" %}
+<div class="mobile-handle mobile-only">
+    <button class="mobile-expand" onclick="setDrawerY(drawerY > getDrawerSnaps().full + 20 ? getDrawerSnaps().full : getDrawerSnaps().peek, true)" aria-label="Expand visitor panel">↕ <span data-mobile-label="expand">展开列表</span></button>
+    <button id="drawer-close-btn" onclick="toggleMobileDrawer(false); event.stopPropagation();" aria-label="Close visitor panel">×</button>
+</div>
+{% endif %}

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>{{ t }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background: #030712;
+            color: #f8fafc;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Ambient background blobs */
+        .bg-blob {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.12;
+            pointer-events: none;
+            animation: float 12s ease-in-out infinite alternate;
+        }
+        .bg-blob-1 { width: 600px; height: 600px; background: #06b6d4; top: -200px; left: -200px; animation-delay: 0s; }
+        .bg-blob-2 { width: 500px; height: 500px; background: #8b5cf6; bottom: -200px; right: -200px; animation-delay: -4s; }
+        .bg-blob-3 { width: 300px; height: 300px; background: #10b981; top: 50%; left: 50%; transform: translate(-50%, -200px); animation-delay: -8s; }
+        @keyframes float { from { transform: translate(0, 0) scale(1); } to { transform: translate(30px, -20px) scale(1.05); } }
+
+        /* Grid overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+        }
+
+        .card {
+            position: relative;
+            width: 90%;
+            max-width: 520px;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(30px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 28px;
+            padding: 48px 44px;
+            overflow: hidden;
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            animation: cardIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(30px) scale(0.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Top accent line */
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 15%; right: 15%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.8), rgba(139, 92, 246, 0.8), transparent);
+        }
+
+        .label {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #475569;
+            margin-bottom: 8px;
+        }
+
+        .prompt-line {
+            font-family: 'Space Mono', monospace;
+            font-size: 13px;
+            color: #64748b;
+            margin-bottom: 28px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .prompt-line .prompt-arrow { color: #10b981; font-weight: 700; }
+        .prompt-line .cmd { color: #94a3b8; }
+
+        .ip-value {
+            font-family: 'Space Mono', monospace;
+            font-size: clamp(1.4rem, 5vw, 2.2rem);
+            font-weight: 700;
+            letter-spacing: -1px;
+            word-break: break-all;
+            line-height: 1.2;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #06b6d4, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: fadeSlideIn 0.6s ease 0.2s forwards;
+            opacity: 0;
+        }
+        @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .geo-line {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #94a3b8;
+            margin-bottom: 32px;
+            animation: fadeSlideIn 0.6s ease 0.4s forwards;
+            opacity: 0;
+        }
+        .geo-icon { color: #10b981; font-size: 16px; }
+        .geo-text { font-weight: 500; }
+
+        .status-line {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-family: 'Space Mono', monospace;
+            font-size: 13px;
+            color: #64748b;
+            animation: fadeSlideIn 0.6s ease 0.6s forwards;
+            opacity: 0;
+        }
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            padding: 6px 14px;
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse-dot 2s ease infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.8); }
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 2px; height: 1.1em;
+            background: #06b6d4;
+            vertical-align: middle;
+            border-radius: 1px;
+            animation: blink 1s step-end infinite;
+            margin-left: 4px;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* Decorative corner */
+        .corner-deco {
+            position: absolute;
+            bottom: 20px; right: 20px;
+            font-size: 10px;
+            font-family: 'Space Mono', monospace;
+            color: #1e293b;
+            letter-spacing: 1px;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-blob bg-blob-1"></div>
+    <div class="bg-blob bg-blob-2"></div>
+    <div class="bg-blob bg-blob-3"></div>
+
+    <div class="card">
+        <div class="label">{{ w }}</div>
+        <div class="prompt-line">
+            <span class="prompt-arrow">➜</span>
+            <span class="cmd">{{ c }}</span>
+        </div>
+
+        <div class="ip-value">{{ ip }}<span class="cursor"></span></div>
+
+        <div class="geo-line">
+            <span class="geo-icon">⊕</span>
+            <span class="geo-text">{{ loc }}</span>
+        </div>
+
+        <div class="status-line">
+            <div class="status-badge">
+                <span class="status-dot"></span>
+                {{ s }}
+            </div>
+        </div>
+
+        <div class="corner-deco">NEXUS</div>
+    </div>
+</body>
+</html>
