@@ -52,8 +52,10 @@ async function handshake(port,origin,cookie,host){return new Promise((resolve,re
     proxy.listen(0,'127.0.0.1');await once(proxy,'listening');
     const port=proxy.address().port;primary=`https://localhost:${port}`;const alias=`https://127.0.0.1:${port}`;
     logFd=fs.openSync(temp+'/server.log','a');
-    async function start(allowed){
-        service=spawn(process.env.NEXUS_BIN||path.join(root,'target/debug/nexus'),{cwd:root,env:{...process.env,DATABASE_URL:dbUrl,LISTEN_ADDR:`127.0.0.1:${servicePort}`,ADMIN_PATH:'/admin',PUBLIC_BASE_URL:primary,ALLOWED_ORIGINS:allowed,ADMIN_INITIAL_USERNAME:'admin',ADMIN_INITIAL_PASSWORD:'origin-qa-password-2026',OIDC_CLIENT_ID:'',OIDC_CLIENT_SECRET:'',FRONTEND_ASSET_DIR:path.join(root,'templates/assets'),RUST_LOG:'warn'},stdio:['ignore',logFd,logFd]});
+    fs.writeFileSync(temp+'/.env','DATABASE_URL=ignored-invalid-url\nCF_TURNSTILE_SECRET_KEY=ignored-legacy-secret\n');
+    async function start(allowed,turnstile=false){
+        fs.writeFileSync(temp+'/nexus.toml',`[server]\nlisten_addr="127.0.0.1:${servicePort}"\nfrontend_asset_dir=${JSON.stringify(path.join(root,'templates/assets'))}\nlog_filter="warn"\n[database]\nurl=${JSON.stringify(dbUrl)}\n[auth]\nadmin_path="/admin"\npublic_base_url=${JSON.stringify(primary)}\nallowed_origins=${JSON.stringify(allowed?[allowed]:[])}\ninitial_password="origin-qa-password-2026"\n[turnstile]\nenabled=${turnstile}\nsite_key="fixture-site"\nsecret_key="fixture-secret"\n`);
+        service=spawn(process.env.NEXUS_BIN||path.join(root,'target/debug/nexus'),['--config',temp+'/nexus.toml'],{cwd:temp,env:{...process.env,DATABASE_URL:'ignored-invalid-url',LISTEN_ADDR:'ignored-invalid-address',CF_TURNSTILE_SECRET_KEY:'ignored-legacy-secret'},stdio:['ignore',logFd,logFd]});
         await waitServer(servicePort);
     }
     await start('');
@@ -99,6 +101,18 @@ INSERT INTO ip_dimensions(ip_address,location,lat,lon) VALUES('8.8.8.8','QA Shan
     assert.equal((await change('https://evil.example')).status(),403);
     assert.deepEqual(errors,[]);
     console.log('PASS: both origins draw 7 actual visitor trajectories; alias CSRF operation accepted; unlisted origin 403; unauthenticated WS 401.');
+    await stopService();await start(alias,true);
+    const challenge=await browser.newPage({ignoreHTTPSErrors:true});
+    await challenge.route('https://challenges.cloudflare.com/turnstile/v0/api.js',route=>route.fulfill({contentType:'text/javascript',body:'/* local fixture: no external challenge */'}));
+    await challenge.goto(primary+'/admin/login');
+    assert.equal(await challenge.locator('.cf-turnstile[data-action="login"]').count(),1);
+    assert.equal((await challenge.content()).includes('fixture-secret'),false);
+    await challenge.locator('#username').fill('admin');await challenge.locator('#password').fill('origin-qa-password-2026');
+    await challenge.locator('#login-form button').click();await challenge.waitForURL(/error=captcha/);
+    await stopService();await start(alias,false);
+    const disabled=await login(primary);
+    assert.equal(await disabled.locator('.cf-turnstile').count(),0);
+    console.log('PASS: TOML overrides no settings from env/.env; Turnstile enabled rejects missing tokens; disabling restores local login while retaining saved keys.');
 }catch(error){if(fs.existsSync(temp+'/server.log'))console.error(fs.readFileSync(temp+'/server.log','utf8').slice(-6000));throw error;}
 finally{
     if(browser)await browser.close();await stopService();if(proxy)await new Promise(r=>proxy.close(r));

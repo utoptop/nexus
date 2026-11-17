@@ -6,13 +6,18 @@ services:
       context: ./server
     restart: unless-stopped
     ports:
-      - "${NEXUS_BIND:-127.0.0.1}:${NEXUS_PORT:-3001}:3000"
-    env_file: .env
-    environment:
-      DATABASE_URL: postgres://nexus:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:5432/nexus
-    # Optional local GeoLite2 City database; enable only after the file exists.
-    # volumes:
-    #   - ./geo-data/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:ro
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - type: bind
+        source: ./config/nexus.toml
+        target: /etc/nexus/nexus.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      # Enable only after this optional file exists:
+      # - ./geo-data/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:ro
+    secrets:
+      - postgres_password
     depends_on:
       db:
         condition: service_healthy
@@ -22,29 +27,26 @@ services:
     image: timescale/timescaledb:latest-pg17
     restart: unless-stopped
     shm_size: 256mb
+    # Fixed values required by the upstream database image; no .env is read.
     environment:
       POSTGRES_USER: nexus
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       POSTGRES_DB: nexus
-      TZ: ${TZ:-Asia/Shanghai}
+    secrets:
+      - postgres_password
     volumes:
       - ./pgdata:/var/lib/postgresql/data
+      - ./config/postgresql.conf:/etc/postgresql/nexus.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nexus -d nexus"]
       interval: 5s
       timeout: 5s
       retries: 20
-    command:
-      - postgres
-      - -c
-      - max_connections=${PG_MAX_CONNECTIONS:-80}
-      - -c
-      - shared_buffers=${PG_SHARED_BUFFERS:-128MB}
-      - -c
-      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-512MB}
-      - -c
-      - work_mem=${PG_WORK_MEM:-4MB}
+    command: ["postgres", "-c", "config_file=/etc/postgresql/nexus.conf"]
     networks:
       - nexus
 networks:
   nexus:
+secrets:
+  postgres_password:
+    file: ./config/postgres-password

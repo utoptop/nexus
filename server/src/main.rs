@@ -7,6 +7,7 @@ pub mod tasks;
 pub mod extractors;
 pub mod error;
 pub mod db;
+pub mod config;
 
 use axum::{
     routing::{get, post},
@@ -29,36 +30,35 @@ use utils::fetch_geo;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let Some((path, check)) = config::arguments()? else { return Ok(()); };
+    let config = Arc::new(config::Config::load(&path)?);
+    let auth = account::config::AuthConfig::from_config(&config)?;
+    let db_options = config.database.connect_options()?;
+    if check { println!("Nexus configuration is valid"); return Ok(()); }
     // 采用 tracing 构建结构化日志
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info,nexus=debug".into())))
+        .with(tracing_subscriber::EnvFilter::new(&config.server.log_filter))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // 加载 .env 环境变量文件
-    dotenvy::dotenv().ok();
-    visuals::load_frontend_assets()?;
-    let auth=account::config::AuthConfig::from_env()?;
-    account::ui_assets()?;
-    
-    // 修改为硬要求加载环境变量里的 DATABASE_URL
-    let db_url = std::env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL must be configured"))?;
+    visuals::load_frontend_assets(&config.server.frontend_asset_dir)?;
+    account::ui_assets(&config.server.frontend_asset_dir)?;
     
     tracing::info!("Connecting to Database...");
     let pool = PgPoolOptions::new()
-        .max_connections(env_limit("DB_MAX_CONNECTIONS", 24, 4, 128) as u32)
+        .max_connections(config.database.max_connections)
         .min_connections(2)
         .idle_timeout(Duration::from_secs(120))
         .acquire_timeout(Duration::from_secs(10))
-        .connect(&db_url).await?;
+        .connect_with(db_options).await?;
 
     tracing::info!("Initializing Database Schema...");
     init_db(&pool).await?;
-    account::init(&pool).await?;
+    account::init(&pool, &config.auth).await?;
 
     let http_client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build().unwrap();
     let geo_cache = Cache::builder()
-        .max_capacity((env_limit("GEO_CACHE_MB", 16, 1, 256) * 1024 * 1024) as u64)
+        .max_capacity(config.limits.geo_cache_mb * 1024 * 1024)
         .weigher(|key: &String, value: &(i32, String, f64, f64)| {
             (key.len() + value.1.len() + 160).min(u32::MAX as usize) as u32
         })
@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
         .time_to_live(Duration::from_secs(24 * 60 * 60)).build();
     let node_activity_cache = Cache::builder().max_capacity(10_000).time_to_live(Duration::from_secs(10)).build();
     
-    let initial_db = maxminddb::Reader::open_readfile("GeoLite2-City.mmdb").ok();
+    let initial_db = maxminddb::Reader::open_readfile(&config.server.geoip_database).ok();
     if initial_db.is_some() { tracing::info!("✅ Loaded local GeoLite2-City database."); }
     
     let geo_db = Arc::new(ArcSwap::from_pointee(initial_db));
@@ -78,14 +78,15 @@ async fn main() -> anyhow::Result<()> {
         if let Ok(event) = res && (event.kind.is_modify() || event.kind.is_create()) { let _ = watch_tx.try_send(()); }
     }).unwrap();
     use notify::{Watcher, RecursiveMode};
-    let _ = watcher.watch(std::path::Path::new("GeoLite2-City.mmdb"), RecursiveMode::NonRecursive);
+    let _ = watcher.watch(&config.server.geoip_database, RecursiveMode::NonRecursive);
 
     let geo_db_watcher = geo_db.clone();
     let ip_mode_watcher = ip_lookup_mode.clone();
+    let geoip_path = config.server.geoip_database.clone();
     
     tokio::spawn(async move {
         let _keep = watcher; 
-        tasks::handle_geo_file_changes(watch_rx, geo_db_watcher, ip_mode_watcher).await;
+        tasks::handle_geo_file_changes(watch_rx, geo_db_watcher, ip_mode_watcher, geoip_path).await;
     });
 
     let (s_loc, s_lat, s_lon) = fetch_geo("", &http_client, &geo_db, &ip_lookup_mode).await;
@@ -120,13 +121,13 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let (ws_tx, ws_rx) = mpsc::channel::<LiveEvent>(env_limit("LIVE_QUEUE_CAPACITY", 8192, 512, 65536));
+    let (ws_tx, ws_rx) = mpsc::channel::<LiveEvent>(config.limits.live_queue_capacity);
     tasks::spawn_ws_batch_loop(ws_rx, tx.clone());
 
-    let (log_tx, log_rx) = mpsc::channel::<LogEntry>(env_limit("LOG_QUEUE_CAPACITY", 16384, 1024, 131072));
+    let (log_tx, log_rx) = mpsc::channel::<LogEntry>(config.limits.log_queue_capacity);
     let (op_tx, op_rx) = mpsc::channel::<UserOperationEntry>(2048);
     
-    let state = AppState { auth:auth.clone(), ingest_slots: Arc::new(Semaphore::new(env_limit("INGEST_CONCURRENCY", 64, 4, 512))), db: pool.clone(), server_loc, tx, metrics_tx, ws_tx, http_client, geo_cache, log_tx, geo_db, node_activity_cache, ip_lookup_mode, op_tx, admin_sessions: Arc::new(Mutex::new(VecDeque::new())), next_session_id: Arc::new(AtomicU64::new(1)) };
+    let state = AppState { config: config.clone(), auth:auth.clone(), ingest_slots: Arc::new(Semaphore::new(config.limits.ingest_concurrency)), db: pool.clone(), server_loc, tx, metrics_tx, ws_tx, http_client, geo_cache, log_tx, geo_db, node_activity_cache, ip_lookup_mode, op_tx, admin_sessions: Arc::new(Mutex::new(VecDeque::new())), next_session_id: Arc::new(AtomicU64::new(1)) };
 
     tasks::spawn_flush_loops(state.clone(), log_rx, op_rx);
     tasks::spawn_db_cleanup_task(pool.clone());
@@ -161,7 +162,7 @@ async fn main() -> anyhow::Result<()> {
         .nest(&auth.admin_path,admin)
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(std::env::var("LISTEN_ADDR").unwrap_or_else(|_|"0.0.0.0:3000".into())).await?;
+    let listener = tokio::net::TcpListener::bind(&config.server.listen_addr).await?;
     tracing::info!("🚀 [NEXUS] 异步高并发时序引擎启动完毕！(流量监控网关已开启)");
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
@@ -221,8 +222,4 @@ async fn init_db(pool: &sqlx::PgPool) -> anyhow::Result<()> {
     }
     
     Ok(())
-}
-fn env_limit(name: &str, default: usize, min: usize, max: usize) -> usize {
-    std::env::var(name).ok().and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(default).clamp(min, max)
 }

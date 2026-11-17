@@ -1,74 +1,95 @@
-# 从 IP Logger / logger-agent 迁移到 Nexus 1.0
+# 从环境变量迁移到配置文件
 
-Nexus 1.0 正式使用 `utoptop/nexus:1.0` 和 `utoptop/nexus-agent:1.0`。协议、数据库表与探针队列结构保留兼容；应用可分步升级。已有部署不需要重新导入访问记录或重新创建数据库。
+当前 `utoptop/nexus:1.0` 与 `utoptop/nexus-agent:1.0` 已同版本重新发布，使用 `nexus.toml` / `nexus-agent.toml`，取消 `.env` 和应用环境变量读取。原环境变量版也使用 1.0 标签，因此必须先迁移配置，再拉取镜像并重新创建容器；版本字符串本身不能区分这两次构建，可用镜像 digest 或 OCI revision 标签核对。
 
-## 服务端：在旧部署目录中升级
+数据库表、探针协议、SQLite 队列与 Cookie 名保持兼容。迁移配置不需要清空数据库、重建账号或删除队列。
 
-1. 备份数据库与原 `.env`、Compose 文件。
-2. 保留数据库镜像、数据库名/用户/密码、`pgdata` 挂载路径、网络与端口。不能把新装 Compose 中的 `nexus` 数据库用户直接套到已有 `admin/iplogger` 数据库。
-3. 在旧 Compose 的应用服务中，仅把 `image` 改成 `utoptop/nexus:1.0`。原服务键和容器名可以暂时保持 `ip-logger`，避免意外创建并行实例。
-4. 保证 `.env` 注入应用容器。源域名和代理域名同时使用时设置：
+## 1. 服务端保留原部署
 
-```dotenv
-PUBLIC_BASE_URL=https://origin.example.com
-ALLOWED_ORIGINS=https://nexus.example.com
+1. 备份原 Compose、`.env` 和数据库，记录原服务名、镜像 digest、端口、卷路径。
+2. 从 `config/nexus.toml.example` 复制一份私有 TOML。
+3. 删除模板里的 `database.password_file`，把原 `DATABASE_URL` 原样放到 `database.url`，保留原用户名、库名、编码后的密码和数据库服务名。
+4. 按下表迁移其他字段，检查文件后将它只读挂载到 `/etc/nexus/nexus.toml`。
+5. 删除应用的旧 `env_file`、应用参数 `environment`、自定义旧二进制 command/entrypoint；保留原数据库服务配置、数据挂载、网络与宿主端口。
+
+```toml
+[database]
+url = "postgres://原用户:原URL编码密码@原数据库服务:5432/原数据库"
+
+[auth]
+public_base_url = "https://origin.example.com"
+allowed_origins = ["https://proxy.example.com"]
+admin_path = "/admin"
 ```
 
-5. 若旧服务键是 `ip-logger`，在旧目录运行：
-
-```bash
-docker compose pull ip-logger
-docker compose up -d --no-deps --no-build --force-recreate ip-logger
-docker compose logs --tail=100 ip-logger
-```
-
-新镜像的默认程序是 `/app/nexus`；如果旧 Compose 手工指定 `command: /app/ip_logger` 或自定义 entrypoint，应删除该覆盖并使用镜像默认命令。
-
-保留原来的 `3002:3000` 等端口映射即可继续使用既有 HAProxy 上游，无需为品牌改名而调整代理。重新登录后验证 `<ADMIN_PATH>/ws`。较早账号版本的管理员会迁移，旧会话可能需要重新登录。内部 `iplogger_session` Cookie 名保留以减少升级中断，这不影响页面品牌。
-
-## Agent：保留持久卷与绑定信息
-
-在旧 Agent Compose 中把镜像改为 `utoptop/nexus-agent:1.0`，保留旧服务键 `logger-agent`、卷名、挂载位置和以下配置：`SERVER_URL`、`NODE_IP`、`NETWORK_INTERFACES`。
-
-新镜像默认状态目录是 `/var/lib/nexus-agent`。如果旧卷仍挂在 `/var/lib/logger-agent`，显式保留：
+已有管理员可不填写 `initial_password`，初始化字段不会覆盖原账号。
 
 ```yaml
 services:
-  logger-agent:
-    image: utoptop/nexus-agent:1.0
-    environment:
-      STATE_DIR: /var/lib/logger-agent
-    # 保留你原来的卷定义，例如：
+  ip-logger: # 保留你原来的服务键
+    image: utoptop/nexus:1.0
     volumes:
-      - agent-data:/var/lib/logger-agent
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/nexus.toml:/etc/nexus/nexus.toml:ro
+    # 其他原网络、端口等配置继续保留
 ```
 
-这是合并片段，不是完整 Compose；其他原有配置仍需保留。然后：
+确认旧 Compose 应用镜像已改为 `utoptop/nexus:1.0` 并挂载好 TOML，然后在旧部署目录执行：
 
 ```bash
-docker compose pull logger-agent
-docker compose up -d --no-deps --no-build --force-recreate logger-agent
-docker compose logs --tail=100 logger-agent
+docker compose pull ip-logger
+docker compose run --rm --no-deps ip-logger --config /etc/nexus/nexus.toml --check-config
+docker compose up -d --no-deps --no-build --force-recreate ip-logger
 ```
 
-默认命令已变为 `nexus-agent`，删除旧的二进制 command 覆盖。不要同时运行两个探针读取同一个持久目录，也不要同时运行新旧探针对同一来源重复计数。
+如果旧 Compose 显式设置了旧 `command` 或 `entrypoint`，需删除后使用新镜像默认入口。不要启动新装 Compose 替换旧数据库。保留 `3002:3000` 等原端口即可继续使用既有 HAProxy 上游。
 
-## 移到新仓库目录时
+## 2. 字段对应
 
-Compose 项目名、服务名和相对路径会影响实际卷及数据目录。新装的 `nexus-agent_agent-data` 与旧目录自动生成的卷名通常不同。迁移已有 Agent 卷时，在新 Compose 使用明确的外部卷名：
+| 旧环境变量 | 新配置字段 |
+| --- | --- |
+| `DATABASE_URL` | `[database] url` |
+| `DB_MAX_CONNECTIONS` | `[database] max_connections` |
+| `LISTEN_ADDR` / `RUST_LOG` | `[server] listen_addr / log_filter` |
+| `FRONTEND_ASSET_DIR` | `[server] frontend_asset_dir` |
+| `ADMIN_PATH` / `PUBLIC_BASE_URL` | `[auth] admin_path / public_base_url` |
+| `ALLOWED_ORIGINS` | `[auth] allowed_origins`，由逗号字符串改为数组 |
+| `SESSION_HOURS` | `[auth] session_hours` |
+| `ADMIN_INITIAL_USERNAME` / `ADMIN_INITIAL_PASSWORD` | `[auth] initial_username / initial_password` |
+| `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | `[oidc] issuer_url / client_id / client_secret` |
+| `CF_TURNSTILE_SITE_KEY` / `CF_TURNSTILE_SECRET_KEY` | `[turnstile] site_key / secret_key`，另设 `enabled = true` 才启用 |
+| `CARTO_API_KEY` / `MAP_API_KEY` | `[map] api_key` |
+| `MAP_TILE_URL` | `[map] tile_url` |
+| `GEO_CACHE_MB` / `INGEST_CONCURRENCY` | `[limits] geo_cache_mb / ingest_concurrency` |
+| `LIVE_QUEUE_CAPACITY` / `LOG_QUEUE_CAPACITY` | `[limits] live_queue_capacity / log_queue_capacity` |
+| `NEXUS_BIND` / `NEXUS_PORT` | 修改 Compose 的 `ports` |
+| `PG_*` 调优项 | 新装可用 `config/postgresql.conf`；旧库保留原数据库配置 |
+| `DB_PASSWORD` | 新装使用 `config/postgres-password`；旧库继续原连接密码 |
 
-```yaml
-volumes:
-  agent-data:
-    external: true
-    name: 这里填写docker-volume-ls中原来的卷名
+原先填了 Turnstile 密钥的实例，迁移时务必明确选择 `enabled = true` 或 `false`；默认关闭，不再根据某一把密钥是否存在隐式启用。
+
+## 3. Agent 保留队列
+
+复制 `agent/config/nexus-agent.toml.example`，把原配置对应到小写字段：
+
+```toml
+server_url = "https://origin.example.com/api/track_batch"
+auth_token = "原API密钥"
+node_ip = "原节点公网IP"
+monitor_containers = ["haproxy-main"]
+network_interfaces = ["eth0"]
+state_dir = "/var/lib/logger-agent" # 如果原卷挂在这里，继续使用原路径
 ```
 
-新服务端目录中的 `./pgdata` 也不是旧目录的数据。先保持旧部署运行，通过备份/恢复或明确的绝对数据路径完成迁移；不要直接启动一套空数据库后误认为旧记录丢失。
+`BATCH_SIZE`、`QUEUE_MAX_EVENTS`、`QUEUE_MAX_BYTES`、`DOCKER_SOCKET`、`METRICS_URL` 分别对应同名小写字段。容器选择与网卡选择改为数组；`monitor_containers = ["auto"]` 对应原 auto，空网卡选择用 `[]`。
 
-状态目录绑定节点身份、上报 URL 与网卡选择。若同时换域名导致 `SERVER_URL` 改变，应先排空旧队列，再按新绑定使用新的状态目录；不要通过删除绑定记录强行混用未确认数据。
+将 TOML 挂载到 `/etc/nexus-agent/nexus-agent.toml`，保留原服务键、Docker Socket、host 网络和状态卷；删除旧应用 `environment` 及旧二进制入口覆盖。将探针镜像设置为 `utoptop/nexus-agent:1.0`，执行 `docker compose pull 原探针服务名`，再检查配置并重新创建探针。
 
-## 回退
+状态目录绑定上报 URL、节点 IP 与网卡集合。这次迁移保持这些值不变，就能继续读取原队列。轮换 API key 不改变绑定。需要同时改上报域名时，先排空队列，再单独迁移绑定；不要修改数据库内的绑定记录绕过检查。
 
-升级前记录旧镜像 digest 与数据库备份。需要回退时优先回退应用镜像并保留数据；数据库 schema 或数据格式是否仍兼容应先在备份副本验证。不要直接覆盖或清空生产数据库来回退版本。
+## 4. 目录、权限与回退
+
+移动 Compose 目录或改变项目名会影响默认卷名。新装 `nexus-agent_agent-data` 通常不是旧卷。迁移到新目录时用 `external: true` 和原卷名，或继续旧目录；服务端 `./pgdata` 同样必须指向原数据。
+
+TOML 中的相对路径以 TOML 所在目录为基准。示例使用容器绝对路径，避免状态卷挂载与配置不一致。配置需让容器用户可读，并限制宿主上其他用户读取。
+
+配置改完后重新创建应用容器，无需删除数据。回退需同时恢复旧镜像与旧环境变量配置；只恢复旧镜像而保留 TOML 启动方式会失败。数据库回退先在备份副本验证，不执行 `down -v` 或清空持久目录。

@@ -1,6 +1,6 @@
 use anyhow::{Context, bail};
 use openidconnect::{IssuerUrl, core::CoreProviderMetadata};
-use std::{env, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
 pub struct AuthConfig {
@@ -11,31 +11,30 @@ pub struct AuthConfig {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub session_hours: i64,
+    pub turnstile: crate::config::Turnstile,
     pub oidc_http: reqwest::Client,
     pub metadata: Mutex<Option<(std::time::Instant, CoreProviderMetadata)>>,
 }
 impl AuthConfig {
-    pub fn from_env() -> anyhow::Result<Arc<Self>> {
-        let path = validate_path(&env::var("ADMIN_PATH").unwrap_or_else(|_| "/admin".into()))?;
-        let public_origin = env::var("PUBLIC_BASE_URL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(|s| validate_origin(&s))
-            .transpose()?;
-        let allowed_origins =
-            validate_allowed_origins(&env::var("ALLOWED_ORIGINS").unwrap_or_default())?;
-        let client_id = env::var("OIDC_CLIENT_ID")
-            .ok()
-            .filter(|s| !s.trim().is_empty());
-        let client_secret = env::var("OIDC_CLIENT_SECRET")
-            .ok()
-            .filter(|s| !s.is_empty());
+    pub fn from_config(config: &crate::config::Config) -> anyhow::Result<Arc<Self>> {
+        let path = validate_path(&config.auth.admin_path)?;
+        let public_origin = if config.auth.public_base_url.is_empty() {
+            None
+        } else {
+            Some(validate_origin(&config.auth.public_base_url)?)
+        };
+        let allowed_origins = validate_allowed_origins(&config.auth.allowed_origins)?;
+        let client_id = Some(config.oidc.client_id.clone()).filter(|s| !s.trim().is_empty());
+        let client_secret = Some(config.oidc.client_secret.clone()).filter(|s| !s.is_empty());
         if client_id.is_some() && (client_secret.is_none() || public_origin.is_none()) {
-            bail!("OIDC_CLIENT_ID requires OIDC_CLIENT_SECRET and PUBLIC_BASE_URL");
+            bail!("oidc.client_id requires oidc.client_secret and auth.public_base_url");
         }
-        let issuer =
-            env::var("OIDC_ISSUER_URL").unwrap_or_else(|_| "https://accounts.google.com".into());
-        let url = reqwest::Url::parse(&issuer).context("Invalid OIDC_ISSUER_URL")?;
+        if client_id.is_none() && client_secret.is_some() {
+            bail!("oidc.client_secret requires oidc.client_id");
+        }
+        config.turnstile.validate()?;
+        let issuer = config.oidc.issuer_url.clone();
+        let url = reqwest::Url::parse(&issuer).context("Invalid oidc.issuer_url")?;
         if url.scheme() != "https"
             || url.query().is_some()
             || url.fragment().is_some()
@@ -51,11 +50,8 @@ impl AuthConfig {
             issuer,
             client_id,
             client_secret,
-            session_hours: env::var("SESSION_HOURS")
-                .ok()
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(24)
-                .clamp(1, 168),
+            session_hours: config.auth.session_hours,
+            turnstile: config.turnstile.clone(),
             oidc_http: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(Duration::from_secs(12))
@@ -137,22 +133,21 @@ pub fn validate_origin(value: &str) -> anyhow::Result<String> {
         || u.fragment().is_some()
         || !u.username().is_empty()
         || u.password().is_some()
+        || u.host_str().is_some_and(|h| h.contains('*'))
     {
         bail!(
-            "PUBLIC_BASE_URL must be an HTTPS origin, e.g. https://logs.example.com (HTTP is allowed on localhost)"
+            "auth.public_base_url and auth.allowed_origins must be HTTPS origins without paths (HTTP is allowed on localhost)"
         );
     }
     Ok(u.origin().ascii_serialization())
 }
 
-pub fn validate_allowed_origins(value: &str) -> anyhow::Result<Vec<String>> {
+pub fn validate_allowed_origins(values: &[String]) -> anyhow::Result<Vec<String>> {
     let mut origins = Vec::new();
-    for value in value.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        if value.contains('*') {
-            bail!("ALLOWED_ORIGINS does not accept wildcards");
-        }
-        let origin = validate_origin(value)
-            .context("ALLOWED_ORIGINS entries must be HTTPS origins without paths or wildcards")?;
+    for value in values {
+        let origin = validate_origin(value).context(
+            "auth.allowed_origins entries must be HTTPS origins without paths or wildcards",
+        )?;
         if !origins.contains(&origin) {
             origins.push(origin);
         }
@@ -195,13 +190,15 @@ mod tests {
     #[test]
     fn allowed_origins_are_explicit_normalized_and_deduplicated() {
         assert_eq!(
-            validate_allowed_origins(
-                " https://origin.example.com, https://NEXUS.example.com:443/,https://nexus.example.com,, "
-            )
+            validate_allowed_origins(&[
+                "https://origin.example.com".into(),
+                "https://NEXUS.example.com:443/".into(),
+                "https://nexus.example.com".into()
+            ])
             .unwrap(),
             ["https://origin.example.com", "https://nexus.example.com"]
         );
-        assert!(validate_allowed_origins(" ").unwrap().is_empty());
+        assert!(validate_allowed_origins(&[]).unwrap().is_empty());
         for invalid in [
             "*",
             "https://*.example.com",
@@ -210,7 +207,10 @@ mod tests {
             "https://user:pass@nexus.example.com",
             "https://nexus.example.com?x=1",
         ] {
-            assert!(validate_allowed_origins(invalid).is_err(), "{invalid}");
+            assert!(
+                validate_allowed_origins(&[invalid.into()]).is_err(),
+                "{invalid}"
+            );
         }
     }
 }
@@ -229,6 +229,7 @@ mod origin_tests {
             client_id: None,
             client_secret: None,
             session_hours: 24,
+            turnstile: crate::config::Turnstile::default(),
             oidc_http: reqwest::Client::new(),
             metadata: Mutex::new(None),
         };
@@ -258,9 +259,12 @@ mod origin_tests {
         h.insert(header::HOST, "origin.example.com".parse().unwrap());
         h.insert(header::ORIGIN, "https://nexus.example.com".parse().unwrap());
         assert!(!crate::account::origin_allowed(&config, &h));
-        config.allowed_origins = validate_allowed_origins("https://nexus.example.com").unwrap();
+        config.allowed_origins = validate_allowed_origins(&["https://nexus.example.com".into()]).unwrap();
         assert!(crate::account::origin_allowed(&config, &h));
-        h.insert(header::ORIGIN, "https://origin.example.com".parse().unwrap());
+        h.insert(
+            header::ORIGIN,
+            "https://origin.example.com".parse().unwrap(),
+        );
         assert!(crate::account::origin_allowed(&config, &h));
         for origin in [
             "https://evil.example",

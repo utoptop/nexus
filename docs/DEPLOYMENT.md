@@ -1,132 +1,127 @@
-# Nexus 服务端部署
+# Nexus 服务端部署（配置文件版）
 
-## 1. 安装方式与端口
+当前 `utoptop/nexus:1.0` 使用 TOML，取消应用环境变量和 `.env`，程序版本仍为 1.0.0。这是同名镜像更新：已有环境变量版部署先看[迁移说明](MIGRATION.md)，准备新配置并保留原数据库、密码、数据目录和端口。
 
-正式镜像为 `utoptop/nexus:1.0`，支持 Linux amd64/arm64。仓库根目录 Compose 创建 Nexus 与 TimescaleDB，数据库不向宿主机发布端口。应用默认仅监听宿主 `127.0.0.1:3001`，容器内监听 `0.0.0.0:3000`。
+## 1. 配置文件
 
-宿主 HAProxy/Nginx 使用 `127.0.0.1:3001`。如果代理与应用在同一 Docker 网络，使用 `nexus:3000`；容器内的 `127.0.0.1` 指向代理容器自身。默认网络名是 `nexus_nexus`，可把现有代理接入该网络，或者在 Compose 中配置已有外部网络。
+| 文件 | 用途 |
+| --- | --- |
+| `config/nexus.toml` | 服务端、账号、域名、Turnstile、OIDC、地图、容量参数 |
+| `config/postgres-password` | 数据库密码，纯文本单行，由应用与 PostgreSQL 共享 |
+| `config/postgresql.conf` | PostgreSQL 内存、连接数等参数 |
+| `docker-compose.yaml` | 宿主端口、网络、挂载、资源限制 |
 
-如果需要远程代理直接连接宿主端口，在 `.env` 设置 `NEXUS_BIND=0.0.0.0`，并按网络拓扑限制该端口的访问来源。`NEXUS_PORT=3002` 可沿用既有 3002 端口。无需修改镜像内的 3000 端口。
+真实 TOML、数据库密码及探针 TOML 已加入 `.gitignore`，镜像不会复制这些文件。配置只在启动时读取，不提供在线热修改。相对文件路径以 TOML 文件所在目录为基准；容器示例使用绝对路径。
 
-## 2. 首次配置与启动
+## 2. 全新安装
 
 ```bash
 git clone https://github.com/utoptop/nexus.git
 cd nexus
-cp .env.example .env
-openssl rand -hex 24
+cp config/nexus.toml.example config/nexus.toml
+openssl rand -hex 24 > config/postgres-password
+chmod 700 config
+chmod 644 config/nexus.toml config/postgres-password
 ```
 
-将随机值写入 `DB_PASSWORD`，设置独立的 `ADMIN_INITIAL_PASSWORD`（至少 12 字符）以及实际 HTTPS `PUBLIC_BASE_URL`。Google 配置可以留空。修改模板中 `nexus.example.com` 后执行：
+`config/` 的宿主权限限制其他普通用户读取；挂载文件要让容器的非 root 用户可读。如果使用 rootless Docker 或自定义 UID，按实际 UID 调整权限。不要把密码文件设成容器用户不可读的 `600` 后直接挂载。
+
+修改 TOML 中的 `auth.public_base_url` 和 `auth.initial_password`（至少 12 字符）；首次初始化用户名默认 `admin`。已有管理员不会被初始化配置重置。数据库密码文件仅在全新安装时随机生成，已有库必须沿用原密码。
 
 ```bash
 docker compose config --quiet
-docker compose pull
+docker compose pull nexus
+docker compose run --rm --no-deps nexus --config /etc/nexus/nexus.toml --check-config
 docker compose up -d --no-build
 docker compose ps
 docker compose logs --tail=100 nexus
 ```
 
-数据库启动完成后应用会初始化表结构及初始管理员。`ADMIN_INITIAL_*` 只在没有已有管理员的数据库上生效，不会重置旧账号密码。
+`--check-config` 校验字段、来源策略、Turnstile 开关与数据库密码文件，不连接数据库。旧库可留空初始化密码；新库需要有效的初始化密码。缺少配置文件、未知字段、错误类型、超范围数值会报错，错误信息不输出配置原文或密钥。
 
-打开 `https://你的域名/admin`。首次登录后进入设置创建 API key，并记录供探针使用。API key 与管理密码、Google Client Secret 是不同的凭据。
+应用默认只发布宿主 `127.0.0.1:3001`。HAProxy/Nginx 连 `http://127.0.0.1:3001`；同一 Docker 网络内连 `nexus:3000`。打开 HTTPS 管理地址 `/admin` 登录，并创建探针 API key。
 
-Compose 示例把数据库密码拼入 PostgreSQL URL，因此新装推荐十六进制密码。接入现有数据库时保留原密码；若包含 `@ : / ? # %` 等 URI 字符，应提供正确 URL 编码的 `DATABASE_URL`，不要为迁就示例而直接改数据库密码。
+## 3. 域名与代理
 
-## 3. 域名、TLS 与 WebSocket
-
-代理必须完整转发 `/admin/...` 与 `/api/...`，不剥离 `/admin`。管理实时连接是 `/admin/ws`；修改 `ADMIN_PATH=/console` 后则是 `/console/ws`。探针上报始终是根路径 `/api/track_batch` 和 `/api/node/metrics`。
-
-参考 [HAProxy](../deploy/haproxy.cfg) 或 [Nginx](../deploy/nginx.conf) 示例，将证书、域名和实际上游端口改为本机值。保留浏览器的 Host、Origin、Cookie 与代理协议头；不能用伪造 Origin 规避来源校验。HAProxy 会处理 WebSocket 升级，`timeout tunnel` 控制已建立连接的空闲超时。[HAProxy 官方说明](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/protocol-support/websocket/)
-
-多入口示例：
-
-```dotenv
-PUBLIC_BASE_URL=https://origin.example.com
-ALLOWED_ORIGINS=https://nexus.example.com,https://status.example.com
+```toml
+[auth]
+public_base_url = "https://origin.example.com"
+allowed_origins = ["https://proxy.example.com", "https://monitor.example.com"]
+admin_path = "/admin"
 ```
 
-允许列表只填写完整 origin（协议 + 主机 + 非默认端口），不能带 `/admin`、查询参数或通配符。设置主域名后，新版会校验 WebSocket 和写操作的 Origin。页面与节点 GET 查询成功，但轨迹不动，可能正是遗漏代理域名导致的 403。
+将内容合并到已有 `[auth]` 段。列表项是协议、主机及可选端口，不带路径、查询参数或通配符；本机 localhost 测试允许 HTTP。主入口用于安全 Cookie 和 OIDC 回调，额外入口用于 WebSocket 与管理写操作的来源校验。不同入口分别登录。
 
-浏览器 F12 → Network → WS 中应看到握手 `101`，并持续收到二进制消息。多个域名需分别登录；更换管理路径后也建议重新登录。
+参考 [HAProxy](../deploy/haproxy.cfg) / [Nginx](../deploy/nginx.conf) 示例，保留 Host、Origin、Cookie，完整转发 `/admin/...` 与 `/api/...`。HAProxy WebSocket 使用 `timeout tunnel` 控制连接超时。[HAProxy 官方说明](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/protocol-support/websocket/)
 
-## 4. 本地 GeoLite2 City 数据库
+修改管理路径后实时接口随之改变，例如 `/console/ws`；探针接口仍为 `/api/track_batch` 与 `/api/node/metrics`。浏览器 WS 应返回 101。
 
-自行取得 `GeoLite2-City.mmdb`，保存到 `geo-data/`，确保文件存在且容器非 root 用户可以读取，再启用 Compose 中的挂载：
+需要沿用 3002 端口时直接将 Compose 端口改为 `127.0.0.1:3002:3000`。远程代理直连宿主时按需调整监听地址及访问范围，不再使用 `NEXUS_PORT` / `NEXUS_BIND` 环境变量。
 
-```yaml
-services:
-  nexus:
-    volumes:
-      - ./geo-data/GeoLite2-City.mmdb:/app/GeoLite2-City.mmdb:ro
+## 4. Turnstile 开关
+
+默认关闭：
+
+```toml
+[turnstile]
+enabled = false
+site_key = ""
+secret_key = ""
+timeout_seconds = 10
 ```
 
-```bash
-docker compose up -d --no-deps --no-build --force-recreate nexus
-```
+开启时改为 `enabled = true`，并填写同一个 Cloudflare Turnstile 组件的 Site Key 和 Secret Key。关闭时允许保留密钥，不显示组件、不发起验证请求；开启但缺少密钥会阻止启动。校验失败、超时、缺少 token 都不会放行本地密码登录。Secret Key 始终只供服务端使用。
 
-没有本地库时，应用使用外部 IP 地理查询。网络不可达、外部限流或数据库没有该地址时，位置可能显示 Unknown。当前 GeoIP 缓存/维表会保留结果，不能假定补上数据库后所有历史坐标立即刷新。节点可在设置中用公网 IP 重新定位。
+这是登录页 Turnstile，不控制 Cloudflare DNS 小黄云或 WAF 挑战开关。详细配置见[身份管理](AUTHENTICATION.md)。
 
-## 5. 配置表
+## 5. 配置字段
 
-| 变量 | 默认值 / 说明 |
+| TOML 字段 | 默认值 / 说明 |
 | --- | --- |
-| `DB_PASSWORD` | Compose 必填，数据库用户 `nexus` 的密码 |
-| `DATABASE_URL` | 二进制必填；根 Compose 自动设置为内部数据库 URL |
-| `ADMIN_INITIAL_USERNAME` | `admin`，仅新库初始化使用 |
-| `ADMIN_INITIAL_PASSWORD` | 新库必填，至少 12 字符 |
-| `ADMIN_PATH` | `/admin`；可设置 `/console` 等非根路径 |
-| `PUBLIC_BASE_URL` | 主 HTTPS origin；启用 Google 时必填 |
-| `ALLOWED_ORIGINS` | 额外信任的浏览器 origin，逗号分隔 |
-| `SESSION_HOURS` | `24`，范围 1–168 |
-| `NEXUS_BIND` / `NEXUS_PORT` | Compose 端口绑定，默认 `127.0.0.1` / `3001` |
-| `LISTEN_ADDR` | 二进制监听地址，默认 `0.0.0.0:3000`；通常不需在容器中改动 |
-| `TZ` | 镜像默认 `Asia/Shanghai` |
-| `RUST_LOG` | 镜像默认 `info`；故障排查可用 `info,nexus=debug` |
-| `OIDC_ISSUER_URL` | `https://accounts.google.com` |
-| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | 可选；详见身份管理说明 |
-| `CF_TURNSTILE_SITE_KEY` / `CF_TURNSTILE_SECRET_KEY` | 可选登录验证配置 |
-| `CARTO_API_KEY` | 可选地图 key；`MAP_API_KEY` 是别名 |
-| `MAP_TILE_URL` | 可选自定义地图瓦片 URL |
-| `DB_MAX_CONNECTIONS` | `24`，应用连接池限制 |
-| `GEO_CACHE_MB` | `16`，地理缓存预算 |
-| `INGEST_CONCURRENCY` | `64`，访问摄入并发上限 |
-| `LIVE_QUEUE_CAPACITY` | `8192`，实时事件通道容量 |
-| `LOG_QUEUE_CAPACITY` | `16384`，数据库日志通道容量 |
-| `PG_MAX_CONNECTIONS` | `80`，数据库连接上限 |
-| `PG_SHARED_BUFFERS` | `128MB` |
-| `PG_EFFECTIVE_CACHE_SIZE` | `512MB`，规划器估计值，不是直接内存分配 |
-| `PG_WORK_MEM` | `4MB`，每个排序/哈希操作的预算，不是数据库总内存 |
+| `server.listen_addr` | `0.0.0.0:3000`，容器内部监听 |
+| `server.log_filter` | `info`，可设 `info,nexus=debug` |
+| `server.frontend_asset_dir` | `/app/templates/assets` |
+| `server.geoip_database` | `/app/GeoLite2-City.mmdb`，可选本地库 |
+| `database.host / port / user / name` | `db / 5432 / nexus / nexus` |
+| `database.password_file` | 必填其一；密码文件，尾部换行会被去掉 |
+| `database.url` | 接入旧库/外部库时使用；与 password_file 互斥 |
+| `database.max_connections` | `24`，范围 4–128 |
+| `auth.admin_path` | `/admin` |
+| `auth.public_base_url` | 主入口；启用 Google 时必填 |
+| `auth.allowed_origins` | `[]`，额外入口数组 |
+| `auth.session_hours` | `24`，范围 1–168 |
+| `auth.initial_username / initial_password` | 初始管理员；密码只在新库生效 |
+| `turnstile.enabled` | `false`，本地密码登录验证开关 |
+| `turnstile.site_key / secret_key` | 启用时同时必填 |
+| `turnstile.timeout_seconds` | `10`，范围 1–30 |
+| `oidc.issuer_url` | `https://accounts.google.com` |
+| `oidc.client_id / client_secret` | 可选 Google 登录，两项同时配置 |
+| `map.api_key / tile_url` | 可选地图参数 |
+| `limits.geo_cache_mb` | `16`，范围 1–256 |
+| `limits.ingest_concurrency` | `64`，范围 4–512 |
+| `limits.live_queue_capacity` | `8192`，范围 512–65536 |
+| `limits.log_queue_capacity` | `16384`，范围 1024–131072 |
 
-应用会限制部分预算变量的有效范围。总内存还包括数据库、连接、页面缓存和并发查询；应根据真实流量监测并调整。
+分段数据库配置用连接参数传递密码，无需 URL 编码。若使用 `database.url`，密码中的 `@ : / ? # %` 等字符仍需正确编码。PostgreSQL 调优直接编辑 `config/postgresql.conf`；数据库镜像所需的固定 `POSTGRES_*` 初始化项保留在 Compose 内，密码值不使用环境变量传递。
 
-## 6. 日志、更新和备份
+## 6. GeoIP、更新与备份
+
+自行取得合法的 GeoLite2 City 数据库，放入 `geo-data/GeoLite2-City.mmdb`，确认非 root 用户可读后启用 Compose 注释中的挂载。无本地库时使用外部 IP 地理查询，网络和限流可能影响定位；旧维表/缓存不会因补上文件立即全部刷新。
+
+只修改配置时：
 
 ```bash
-docker compose logs -f --tail=100 nexus
-docker compose logs --tail=100 db
-docker compose pull nexus
+docker compose run --rm --no-deps nexus --config /etc/nexus/nexus.toml --check-config
 docker compose up -d --no-deps --no-build --force-recreate nexus
 ```
 
-默认数据库目录为 `./pgdata`。应用镜像无 shell，排查时优先使用应用日志、Compose 状态和数据库客户端，不依赖进入应用容器执行 bash。
-
-数据库逻辑备份：
+重新创建可确保编辑器原子替换后的挂载文件也生效。更新正式镜像先执行 `docker compose pull nexus`，再重新创建应用容器；仅修改配置不需要重新构建。源码部署可使用 `docker compose build nexus`。同名标签更新前记录旧镜像 digest，回退时使用对应的旧配置。
 
 ```bash
 mkdir -p backups
 docker compose exec -T db pg_dump -U nexus -d nexus -Fc > backups/nexus.dump
 ```
 
-备份还应包含 `.env`、反向代理配置以及 PostgreSQL/TimescaleDB 的实际版本信息。备份文件不加入 Git。恢复时使用单独的新数据库，启用相同版本的 TimescaleDB，在恢复前后调用 `timescaledb_pre_restore()` / `timescaledb_post_restore()`；不要给 TimescaleDB 的 `pg_restore` 使用 `-j`。先在隔离环境验证恢复再切换应用连接。[官方恢复步骤](https://www.tigerdata.com/docs/deploy/self-hosted/backup-and-restore/logical-backup)
+同时备份私有配置、密码文件、代理配置和数据库实际版本。数据库存放在 `./pgdata`，不能随意删除或更换 PG 主版本。TimescaleDB 恢复应遵循其 pre/post restore 步骤，不给 pg_restore 使用 `-j`。[官方恢复步骤](https://www.tigerdata.com/docs/deploy/self-hosted/backup-and-restore/logical-backup)
 
-应用更新通常只拉取 `nexus` 服务，避免无意升级 `latest-pg17` 数据库标签。正式环境可把数据库镜像固定为经验证的版本或 digest；数据库主版本升级应独立执行。
-
-## 7. 验收
-
-1. `/admin` 登录成功，页面显示 NEXUS。
-2. `/admin/ws` 返回 101；使用额外域名时分别验证。
-3. Agent 上报后节点显示在线，网卡活动时有速度数据。
-4. 访问被监控代理，确认 Docker access log 有支持格式的公网客户端记录。
-5. 管理页面的访问计数增加并画出动态轨迹。
-6. 暂停 Agent，约 30 秒未报告后节点显示离线；重新启动后恢复。
+服务端镜像没有 shell，检查配置使用二进制的 `--check-config` 和容器日志。

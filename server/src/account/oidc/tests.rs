@@ -99,6 +99,7 @@ async fn oidc_roundtrip_browser_binding_replay_and_pending_approval() {
         client_id: Some("qa-client".into()),
         client_secret: Some("qa-secret".into()),
         session_hours: 1,
+        turnstile: crate::config::Turnstile::default(),
         oidc_http: reqwest::Client::new(),
         metadata: Mutex::new(Some((std::time::Instant::now(), metadata))),
     });
@@ -108,6 +109,7 @@ async fn oidc_roundtrip_browser_binding_replay_and_pending_approval() {
     let (log_tx, _) = mpsc::channel(1);
     let (op_tx, _) = mpsc::channel(1);
     let state = AppState {
+        config: Arc::new(crate::config::Config::default()),
         db: db.clone(),
         auth,
         server_loc: Arc::new(ArcSwap::from_pointee(crate::models::ServerLocation {

@@ -21,10 +21,8 @@ struct FrontendAssets {
     runtime: String, controller: String, routes: String, layout: String, coastline: String, nodes: String, overview: String, stream: String,
 }
 static FRONTEND_ASSETS: std::sync::OnceLock<FrontendAssets> = std::sync::OnceLock::new();
-pub fn load_frontend_assets() -> std::io::Result<()> {
+pub fn load_frontend_assets(dir: &std::path::Path) -> std::io::Result<()> {
     if FRONTEND_ASSETS.get().is_some() { return Ok(()); }
-    let dir = std::env::var_os("FRONTEND_ASSET_DIR")
-        .map(std::path::PathBuf::from).unwrap_or_else(|| "templates/assets".into());
     let read = |name: &str| std::fs::read_to_string(dir.join(name))
         .map_err(|e| std::io::Error::new(e.kind(), format!("frontend asset {}: {e}", dir.join(name).display())));
     let assets = FrontendAssets {
@@ -217,7 +215,6 @@ pub fn generate_admin_ui(
         ));
     }
 
-    load_frontend_assets().expect("frontend assets must be installed alongside the binary");
     let assets = FRONTEND_ASSETS.get().expect("frontend assets loaded");
     let html=AdminTemplate {
         t_title, t_freq, t_playback, t_geo_off, t_ip_off, t_track_off, t_data, t_settings, t_logout, t_fullscreen,
@@ -240,7 +237,7 @@ pub fn generate_admin_ui(
         lat: server.lat, lon: server.lon, city: &server.city, dyn_bright, res_bright, res_time, anim_speed,
         init_speed, init_thick, res_thick, dash_length, dash_gap,
     }.render().unwrap();
-    crate::account::paths_html(html,&crate::account::config::validate_path(&std::env::var("ADMIN_PATH").unwrap_or_else(|_|"/admin".into())).expect("validated admin path"))
+    html
 }
 #[cfg(test)]
 mod tests {
@@ -248,6 +245,7 @@ mod tests {
 
     #[test]
     fn render_dashboard_fixture() {
+        load_frontend_assets(std::path::Path::new("templates/assets")).unwrap();
         let places = [(31.23,121.47,"中国 · 上海"),(35.68,139.69,"日本 · 东京"),(1.35,103.82,"新加坡"),(37.77,-122.42,"美国 · 旧金山"),(51.51,-0.13,"英国 · 伦敦"),(48.86,2.35,"法国 · 巴黎"),(-33.87,151.21,"澳大利亚 · 悉尼")];
         let mut stats = Vec::new();
         let mut history = Vec::new();

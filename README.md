@@ -9,12 +9,15 @@ Nexus 是用于自托管节点的实时访问与网络流量观测平台。服�
 
 镜像提供 `linux/amd64` 和 `linux/arm64`。源码仓库：[utoptop/nexus](https://github.com/utoptop/nexus)。
 
+> `:1.0` 已重新发布为 TOML 配置文件版，程序版本仍为 `1.0.0`。使用旧环境变量版的实例，请先按[迁移说明](docs/MIGRATION.md)准备配置并保留原数据，再拉取同名镜像；仅执行 restart 不会更新镜像。
+
 ## 功能
 
 - 真实访问事件驱动的地图轨迹、访客亮点、节点活动和历史回放，适配桌面与手机。
 - 节点心跳在线判断、收发速度、累计流量、月配额和重置日期配置。
 - 本地账号、管理员/观察者权限、Google OIDC、会话撤销与 CSRF 防护。
-- `PUBLIC_BASE_URL` 与 `ALLOWED_ORIGINS` 支持源站域名和代理域名同时访问。
+- 独立 TOML 配置文件，以及可显式开启/关闭的 Cloudflare Turnstile 本地登录验证。
+- `auth.public_base_url` 与 `auth.allowed_origins` 支持源站域名和代理域名同时访问。
 - Docker Unix Socket 原生日志采集，支持 `TRACK_L7`、Nginx common/combined 和 HAProxy HTTP 日志。
 - Agent 使用 SQLite 持久队列、stdout/stderr 独立游标、故障退避与有界背压。
 - PostgreSQL/TimescaleDB 存储，支持本地 GeoLite2 City IP 地理库。
@@ -39,30 +42,38 @@ flowchart LR
 ```bash
 git clone https://github.com/utoptop/nexus.git
 cd nexus
-cp .env.example .env
-openssl rand -hex 24
+cp config/nexus.toml.example config/nexus.toml
+openssl rand -hex 24 > config/postgres-password
+chmod 700 config
+chmod 644 config/nexus.toml config/postgres-password
 ```
 
-编辑 `.env`，至少填写：
+编辑 `config/nexus.toml` 的对应配置段（不要重复添加同名段）：
 
-```dotenv
-DB_PASSWORD=替换为上一步生成的十六进制密码
-ADMIN_INITIAL_USERNAME=admin
-ADMIN_INITIAL_PASSWORD=替换为至少12个字符的独立管理密码
-ADMIN_PATH=/admin
-PUBLIC_BASE_URL=https://nexus.example.com
-ALLOWED_ORIGINS=
+```toml
+[auth]
+admin_path = "/admin"
+public_base_url = "https://nexus.example.com"
+allowed_origins = []
+initial_username = "admin"
+initial_password = "替换为至少12个字符的独立管理密码"
+
+[turnstile]
+enabled = false
+site_key = ""
+secret_key = ""
 ```
 
-`PUBLIC_BASE_URL` 填浏览器实际访问的 HTTPS 地址，不带 `/admin`。如果还使用其他入口，把完整 origin 用逗号分隔写入 `ALLOWED_ORIGINS`。两个域名的登录 Cookie 独立，需要分别登录。
+`public_base_url` 不带 `/admin`。多个入口写入 `allowed_origins = ["https://proxy.example.com"]`；各域名需分别登录。需要人机验证时，把 `enabled` 改为 `true` 并填写 Cloudflare Turnstile 的两把密钥；缺少任意一把会拒绝启动。
 
 ```bash
-docker compose pull
+docker compose pull nexus
+docker compose run --rm --no-deps nexus --config /etc/nexus/nexus.toml --check-config
 docker compose up -d --no-build
 docker compose logs --tail=100 nexus
 ```
 
-默认发布 `127.0.0.1:3001 → 容器 3000`，让宿主反向代理连接 `http://127.0.0.1:3001`。配置好 HTTPS 后打开 `https://nexus.example.com/admin`，使用初始化账号登录，在设置中创建探针 API key。
+默认发布 `127.0.0.1:3001 → 容器 3000`，宿主反向代理连接 `http://127.0.0.1:3001`。配置好 HTTPS 后打开 `https://nexus.example.com/admin`，登录并创建探针 API key。应用不读取 `.env` 或旧环境变量。数据库镜像内部使用固定的初始化环境项，密码通过文件传入。
 
 - [完整服务端部署与参数](docs/DEPLOYMENT.md)
 - [Nginx 示例](deploy/nginx.conf) / [HAProxy 示例](deploy/haproxy.cfg)
@@ -74,26 +85,30 @@ docker compose logs --tail=100 nexus
 
 ```bash
 cd agent
-cp .env.example .env
+cp config/nexus-agent.toml.example config/nexus-agent.toml
+chmod 700 config
 ```
 
-```dotenv
-SERVER_URL=https://nexus.example.com/api/track_batch
-AUTH_TOKEN=替换为管理后台生成的API密钥
-NODE_IP=替换为本节点公网IP
-MONITOR_CONTAINERS=auto
-NETWORK_INTERFACES=
+编辑 `config/nexus-agent.toml`：
+
+```toml
+server_url = "https://nexus.example.com/api/track_batch"
+auth_token = "替换为后台生成的API密钥"
+node_ip = "203.0.113.10" # 换为节点真实公网 IP
+monitor_containers = ["auto"]
+network_interfaces = []
 ```
 
 ```bash
-docker compose pull
+docker compose pull nexus-agent
+docker compose run --rm --no-deps nexus-agent --config /etc/nexus-agent/nexus-agent.toml --check-config
 docker compose up -d --no-build
 docker compose logs -f nexus-agent
 ```
 
-`auto` 只发现名称或镜像含 `nginx` / `haproxy` 的运行容器；其他名称用逗号显式指定，例如 `MONITOR_CONTAINERS=proxy-main,web-gateway`。日志必须写到 Docker 可读取的 stdout/stderr。
+`auto` 仅匹配名称或镜像含 `nginx` / `haproxy` 的运行容器；其他名称写成 `monitor_containers = ["proxy-main", "web-gateway"]`。日志须写到 Docker 可读取的 stdout/stderr。
 
-**节点在线、有网速，不代表已经采集到访问事件。** 动态轨迹还需要支持的访问日志、有效客户端 IP，以及浏览器成功建立 `<ADMIN_PATH>/ws` 连接。
+**节点在线、有网速，不代表已经采集到访问事件。** 轨迹还需要支持的日志、有效客户端 IP，以及成功建立管理路径下的 WebSocket 连接。
 
 详见[探针部署、日志格式与恢复机制](docs/AGENT.md)。
 
@@ -105,7 +120,8 @@ agent/                  Nexus Agent、独立 Compose 和采集测试
 deploy/                 Nginx / HAProxy 配置示例
 docs/                   部署、迁移、身份管理、开发和故障排查
 docker-compose.yaml     全新服务端安装（应用 + TimescaleDB）
-.env.example            服务端环境变量模板
+config/                 TOML 模板与 PostgreSQL 配置
+agent/config/           探针 TOML 模板
 ```
 
 ## 升级与数据
@@ -117,7 +133,7 @@ docker compose pull nexus
 docker compose up -d --no-deps --no-build --force-recreate nexus
 ```
 
-修改 `.env` 后也要重新创建容器，`docker compose restart` 不会更新容器环境变量。数据库使用 PG17 系列；数据库版本升级需要单独规划，不能直接将旧 PG 数据目录挂载给不同主版本。
+配置在启动时读取；修改 TOML 后重新创建容器，以兼容编辑器原子替换文件的行为。单纯修改配置不需要重新构建镜像。数据库使用 PG17 系列；数据库版本升级需要单独规划，不能直接将旧 PG 数据目录挂载给不同主版本。
 
 ## 运行边界
 

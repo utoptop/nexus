@@ -16,7 +16,7 @@ LABEL org.opencontainers.image.title="Nexus Agent" \
       org.opencontainers.image.version="1.0.0" \
       org.opencontainers.image.source="https://github.com/utoptop/nexus" \
       org.opencontainers.image.revision="${VCS_REF}"
-ENV STATE_DIR=/var/lib/nexus-agent
 COPY --from=builder /nexus-agent /usr/local/bin/nexus-agent
 RUN mkdir -p /var/lib/nexus-agent
-CMD ["nexus-agent"]
+ENTRYPOINT ["nexus-agent"]
+CMD ["--config", "/etc/nexus-agent/nexus-agent.toml"]

@@ -21,7 +21,14 @@ fn main() -> Result<()> {
 }
 
 async fn run() -> Result<()> {
-    let config = Arc::new(config::Config::from_env()?);
+    let Some((path, check)) = config::arguments()? else {
+        return Ok(());
+    };
+    let config = Arc::new(config::Config::load(&path)?);
+    if check {
+        println!("Nexus Agent configuration is valid");
+        return Ok(());
+    }
     let store = store::Store::open(&config)?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))

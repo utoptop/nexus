@@ -92,9 +92,13 @@ def run(binary):
             daemon_threads = True
         docker_server=UnixServer(str(root/"docker.sock"),DockerHandler)
         threading.Thread(target=docker_server.serve_forever,daemon=True).start()
-        env = dict(os.environ, SERVER_URL=f"http://127.0.0.1:{server.server_port}/api/track_batch",
-                   AUTH_TOKEN="test-token", NODE_IP="1.1.1.1", MONITOR_CONTAINERS="test",
-                   STATE_DIR=str(root / "data"), DOCKER_SOCKET=str(root/"docker.sock"), NO_PROXY="*")
+        config = root / "nexus-agent.toml"
+        values = dict(server_url=f"http://127.0.0.1:{server.server_port}/api/track_batch",
+                      auth_token="test-token", node_ip="1.1.1.1", monitor_containers=["test"],
+                      state_dir=str(root/"data"), docker_socket=str(root/"docker.sock"))
+        config.write_text("\n".join(f"{k} = {json.dumps(v)}" for k,v in values.items()))
+        # Conflicting legacy settings must not override the file.
+        env = dict(os.environ, SERVER_URL="ignored-invalid-url", AUTH_TOKEN="ignored", NO_PROXY="*")
         for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "METRICS_URL"]:
             env.pop(key, None)
 
@@ -108,7 +112,7 @@ def run(binary):
         process = None
         try:
             with (root / "agent.log").open("w+") as log:
-                process = subprocess.Popen([binary], env=env, stdout=log, stderr=log)
+                process = subprocess.Popen([binary,"--config",str(config)], env=env, stdout=log, stderr=log)
                 # Collection must proceed while the handshake is rejected.
                 eventually(lambda: queue_count() == 2)
                 process.send_signal(signal.SIGTERM)
@@ -116,7 +120,7 @@ def run(binary):
                 assert queue_count() == 2
                 (root / "second-start").touch()
                 available.set()
-                process = subprocess.Popen([binary], env=env, stdout=log, stderr=log)
+                process = subprocess.Popen([binary,"--config",str(config)], env=env, stdout=log, stderr=log)
                 eventually(lambda: queue_count() == 0 and len(accepted) > 0)
                 eventually(lambda: b"gamma.example" in b"".join(accepted))
                 # Exercise one reconnect with inclusive replay of all three lines.

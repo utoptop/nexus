@@ -153,14 +153,15 @@ pub fn spawn_geo_watcher(
 pub async fn handle_geo_file_changes(
     mut watch_rx: tokio::sync::mpsc::Receiver<()>,
     geo_db_watcher: Arc<arc_swap::ArcSwap<Option<Reader<Vec<u8>>>>>,
-    ip_mode_watcher: Arc<arc_swap::ArcSwap<IpLookupMode>>
+    ip_mode_watcher: Arc<arc_swap::ArcSwap<IpLookupMode>>,
+    geoip_path: std::path::PathBuf,
 ) {
     while watch_rx.recv().await.is_some() {
         tokio::time::sleep(Duration::from_secs(3)).await;
         while watch_rx.try_recv().is_ok() {} 
         
         tracing::info!("📡 侦测到 GeoLite2-City.mmdb 更新，尝试重载本地库...");
-        if let Ok(new_db) = maxminddb::Reader::open_readfile("GeoLite2-City.mmdb") {
+        if let Ok(new_db) = maxminddb::Reader::open_readfile(&geoip_path) {
             let is_first_load = geo_db_watcher.load().is_none();
             geo_db_watcher.store(Arc::new(Some(new_db)));
             if is_first_load { 

@@ -1,0 +1,13 @@
+# Copy to config/nexus-agent.toml; no application environment variables needed.
+server_url = "https://nexus.example.com/api/track_batch"
+auth_token = "" # API key generated in the Nexus admin page
+node_ip = "203.0.113.10" # Replace with this node's public IP
+monitor_containers = ["auto"] # Or ["haproxy-main", "nginx-main"]
+network_interfaces = [] # Or ["eth0", "eth1"]; empty uses automatic filtering
+batch_size = 500
+state_dir = "/var/lib/nexus-agent"
+docker_socket = "/var/run/docker.sock"
+queue_max_events = 50000
+queue_max_bytes = 67108864
+# Normally derived from server_url. Set only when using a custom API route:
+# metrics_url = "https://nexus.example.com/api/node/metrics"

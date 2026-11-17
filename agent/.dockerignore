@@ -3,3 +3,5 @@ target
 .env*
 data
 .DS_Store
+config/
+nexus-agent.toml

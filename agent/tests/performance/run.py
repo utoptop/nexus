@@ -1,5 +1,6 @@
 """Compare Docker images under the same 1-vCPU quota with two log sources.
 
+Both images must support TOML configuration (legacy env-only images are unsupported).
 Usage: python3 tests/performance/run.py BASELINE_IMAGE CANDIDATE_IMAGE [COUNT]
 Build fixture first: docker build -t nexus-agent-bench-fixture tests/performance
 """
@@ -11,6 +12,7 @@ import sys
 import time
 import urllib.request
 import uuid
+import tempfile
 
 
 def docker(*args, check=True):
@@ -20,6 +22,7 @@ def docker(*args, check=True):
 def measure(image, count):
     prefix="lagbench-"+uuid.uuid4().hex[:8]
     network=prefix+"-net"; volume=prefix+"-socket"; server=prefix+"-server"; agent=prefix+"-agent"
+    temporary=tempfile.TemporaryDirectory(prefix="nexus-agent-bench-")
     try:
         docker("network","create",network)
         docker("volume","create",volume)
@@ -37,11 +40,11 @@ def measure(image, count):
                 break
             except (OSError, ValueError):
                 time.sleep(.1)
+        config=Path(temporary.name)/"nexus-agent.toml"
+        values=dict(server_url=f"http://{server}:8080/api/track_batch",auth_token="benchmark",node_ip="1.1.1.1",docker_socket="/fixture/docker.sock")
+        config.write_text("\n".join(f"{k} = {json.dumps(v)}" for k,v in values.items()))
         docker("run","-d","--name",agent,"--network",network,"--cpus","1","--memory","256m",
-               "-v",volume+":/fixture:ro", "-e",f"SERVER_URL=http://{server}:8080/api/track_batch",
-               "-e","AUTH_TOKEN=benchmark", "-e","NODE_IP=1.1.1.1",
-               "-e","DOCKER_HOST=unix:///fixture/docker.sock", "-e","DOCKER_SOCKET=/fixture/docker.sock",
-               "-e","MONITOR_CONTAINERS=auto", "-e","BATCH_SIZE=500", image)
+               "-v",volume+":/fixture:ro","-v",f"{config}:/etc/nexus-agent/nexus-agent.toml:ro",image)
         for _ in range(200):
             if get("/control/state")["streams"]==2:
                 break
@@ -77,6 +80,7 @@ def measure(image, count):
         docker("rm","-f",agent,server,check=False)
         docker("volume","rm",volume,check=False)
         docker("network","rm",network,check=False)
+        temporary.cleanup()
 
 
 if __name__=="__main__":

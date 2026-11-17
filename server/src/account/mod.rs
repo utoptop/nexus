@@ -2,6 +2,7 @@ pub mod config;
 mod oidc;
 mod ui;
 mod users;
+mod turnstile;
 
 use crate::{error::AppError, models::AppState};
 use axum::{
@@ -327,31 +328,8 @@ async fn local_login(
         }
         LOGIN_ATTEMPTS.insert(key.clone(), attempts + 1).await;
     }
-    if let Ok(secret) = std::env::var("CF_TURNSTILE_SECRET_KEY") {
-        if !secret.is_empty() {
-            let response = state
-                .auth
-                .oidc_http
-                .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
-                .form(&[
-                    ("secret", secret),
-                    ("response", p.captcha.unwrap_or_default()),
-                ])
-                .send()
-                .await;
-            let verified = if let Ok(r) = response {
-                r.json::<serde_json::Value>()
-                    .await
-                    .ok()
-                    .and_then(|j| j["success"].as_bool())
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-            if !verified {
-                return login_redirect(&state.auth, "captcha");
-            }
-        }
+    if !turnstile::verify(&state.auth, p.captcha.as_deref()).await {
+        return login_redirect(&state.auth, "captcha");
     }
     let record: Option<(i64, Option<String>, String, i64)> = sqlx::query_as(
         "SELECT id,password_hash,status,auth_version FROM app_users WHERE lower(username)=$1",
@@ -420,7 +398,7 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
         .into_response()
 }
 
-pub async fn init(db: &sqlx::PgPool) -> anyhow::Result<()> {
+pub async fn init(db: &sqlx::PgPool, config: &crate::config::Auth) -> anyhow::Result<()> {
     for sql in [
         "CREATE TABLE IF NOT EXISTS app_users(id BIGSERIAL PRIMARY KEY,username TEXT,display_name TEXT NOT NULL,email TEXT,password_hash TEXT,role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin','viewer')),status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('active','pending','disabled')),created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,last_login_at TIMESTAMPTZ)",
         "CREATE UNIQUE INDEX IF NOT EXISTS app_users_username ON app_users(lower(username)) WHERE username IS NOT NULL",
@@ -456,17 +434,13 @@ pub async fn init(db: &sqlx::PgPool) -> anyhow::Result<()> {
                 },
             )
         } else {
-            let pass = std::env::var("ADMIN_INITIAL_PASSWORD").map_err(|_| {
-                anyhow::anyhow!(
-                    "Fresh installation requires ADMIN_INITIAL_PASSWORD (12+ characters)"
-                )
-            })?;
+            let pass = &config.initial_password;
             anyhow::ensure!(
                 valid_password(&pass),
-                "ADMIN_INITIAL_PASSWORD must contain 12–1024 bytes"
+                "Fresh installation requires auth.initial_password (12–1024 bytes)"
             );
             (
-                std::env::var("ADMIN_INITIAL_USERNAME").unwrap_or_else(|_| "admin".into()),
+                config.initial_username.clone(),
                 hash_password(&pass),
             )
         };
@@ -549,8 +523,8 @@ mod integration_tests {
             .execute(&db)
             .await
             .unwrap();
-        init(&db).await.unwrap();
-        init(&db).await.unwrap();
+        init(&db, &crate::config::Auth::default()).await.unwrap();
+        init(&db, &crate::config::Auth::default()).await.unwrap();
         let users: Vec<(i64, String, String, String)> =
             sqlx::query_as("SELECT id,username,password_hash,role FROM app_users")
                 .fetch_all(&db)

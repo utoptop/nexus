@@ -20,11 +20,11 @@ cargo build --locked
 python3 tests/recovery.py target/debug/nexus-agent
 ```
 
-生产启动服务端前设置 `DATABASE_URL`，工作目录使用 `server/`，或显式设置 `FRONTEND_ASSET_DIR`。程序分别为 `target/debug/nexus` 与 `target/debug/nexus-agent`。
+服务端使用 `target/debug/nexus --config /path/to/nexus.toml`；本机运行时将 `server.frontend_asset_dir` 设为仓库 `server/templates/assets` 的绝对路径。探针使用 `target/debug/nexus-agent --config /path/to/nexus-agent.toml`。两者支持 `--check-config`，不读取应用环境变量。测试工具自身的路径/数据库选择变量仍只用于测试。
 
 ## 双域名浏览器回归
 
-需要 Node.js、Playwright、Chrome/Chromium、openssl 与一个发布本机端口的可销毁 PostgreSQL 容器。测试会自行创建/清理独立数据库，模拟代理改写 Host，先验证代理域名被单域名策略拒绝，再只改变允许列表验证真实轨迹恢复。
+需要 Node.js、Playwright、Chrome/Chromium、openssl 与一个发布本机端口的可销毁 PostgreSQL 容器。测试会自行创建/清理独立数据库，模拟代理改写 Host，先验证代理域名被单域名策略拒绝，再只改变允许列表验证真实轨迹恢复。同时验证旧环境变量不干扰 TOML，以及 Turnstile 开启拒绝空 token、关闭后恢复登录。
 
 ```bash
 docker run -d --name nexus-qa-db -e POSTGRES_PASSWORD=local-test-only -p 127.0.0.1:55439:5432 postgres:17-alpine
@@ -51,11 +51,11 @@ NEXUS_TEST_DATABASE_URL='postgres://test_user:test_password@127.0.0.1:5432/nexus
 单架构本机构建：
 
 ```bash
-docker build -t utoptop/nexus:1.0 server
-docker build -t utoptop/nexus-agent:1.0 agent
+docker build -t nexus:config-test server
+docker build -t nexus-agent:config-test agent
 ```
 
-多架构需要配置好支持 amd64/arm64 的 Buildx builder 并登录有权限的 Docker Hub 账号。正式发布命令：
+配置文件版沿用 `:1.0` 镜像标签与 1.0.0 程序版本。发布前运行回归测试、记录旧 digest，并更新迁移说明。多架构构建需要支持 amd64/arm64 的 Buildx builder；`VCS_REF` 必须对应发布源码提交。
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 --build-arg VCS_REF="$(git rev-parse HEAD)" -t utoptop/nexus:1.0 --push server
@@ -64,6 +64,8 @@ docker buildx imagetools inspect utoptop/nexus:1.0
 docker buildx imagetools inspect utoptop/nexus-agent:1.0
 ```
 
+同名发布后还应重新拉取镜像执行新装验收，并核对 `org.opencontainers.image.revision`。旧版回退须同时恢复其环境变量配置。
+
 Agent Docker build 会先运行单元测试再编译 release。服务端测试需要 `tests/` 的测试专用 fixture，发布前在源码环境运行；生产构建上下文排除测试、数据、凭据和历史备份。
 
 ## 实际 Docker 日志检查
@@ -71,7 +73,18 @@ Agent Docker build 会先运行单元测试再编译 release。服务端测试�
 ```bash
 docker build -t nexus-agent-bench-fixture agent/tests/performance
 cd agent
-AGENT_IMAGE=utoptop/nexus-agent:1.0 python3 tests/docker_smoke.py
+AGENT_IMAGE=nexus-agent:config-test python3 tests/docker_smoke.py
 ```
 
 测试只创建自身命名的容器/网络，验证真实 Docker 日志帧、三种访问日志、stdout/stderr、游标重连和 SIGTERM。`tests/performance` 中的旧结果是更名前版本的历史样本，不代表 Nexus 1.0 在任意主机上的容量保证。
+
+## 无环境文件的新装验收
+
+先按上文构建 `nexus:config-test`、`nexus-agent:config-test` 和日志 fixture 镜像，确保 Playwright 与 Chrome 可用，再执行：
+
+```bash
+cd server
+CHROME_PATH=/path/to/chrome node tests/config-compose-smoke.cjs
+```
+
+该脚本复制真实 Compose/TOML 模板，创建独立项目和数据卷，不生成 `.env`，验证数据库密码文件、配置检查、登录、真实探针采集以及两个入口的动态轨迹；结束后仅清理自己的测试资源。可用 `NEXUS_IMAGE` / `AGENT_IMAGE` 指定其他配置文件版测试镜像。

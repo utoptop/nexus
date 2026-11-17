@@ -2,41 +2,44 @@
 
 ## 1. 运行方式
 
-镜像：`utoptop/nexus-agent:1.0`，程序：`nexus-agent`，版本：1.0.0。要求 Linux Docker 主机，使用 host 网络读取宿主网卡计数器，并挂载 Docker Unix Socket。可监控其他 Compose 项目的容器。
+当前 `utoptop/nexus-agent:1.0` 为 TOML 配置文件版，程序版本仍为 1.0.0。旧环境变量版应先迁移配置、保留状态卷，再拉取同名镜像。要求 Linux Docker 主机，使用 host 网络读取宿主网卡计数器，并挂载 Docker Unix Socket。
 
-在节点上取得仓库 `agent/` 目录，执行：
-
-```bash
-cp .env.example .env
-```
-
-填写：
-
-```dotenv
-SERVER_URL=https://nexus.example.com/api/track_batch
-AUTH_TOKEN=后台设置中生成的API密钥
-NODE_IP=203.0.113.10
-MONITOR_CONTAINERS=auto
-NETWORK_INTERFACES=eth0
-```
-
-`NODE_IP` 换成本节点真实公网 IPv4/IPv6，`eth0` 换成实际出口网卡；不知道接口名时可留空使用自动过滤。之后：
+在仓库 `agent/` 目录执行：
 
 ```bash
-docker compose config --quiet
-docker compose pull
+cp config/nexus-agent.toml.example config/nexus-agent.toml
+chmod 700 config
+```
+
+编辑对应字段：
+
+```toml
+server_url = "https://nexus.example.com/api/track_batch"
+auth_token = "后台生成的API密钥"
+node_ip = "203.0.113.10"
+monitor_containers = ["auto"]
+network_interfaces = ["eth0"]
+```
+
+`node_ip` 换为真实公网 IPv4/IPv6，网卡改为实际出口接口；自动过滤使用 `network_interfaces = []`。
+
+```bash
+docker compose pull nexus-agent
+docker compose run --rm --no-deps nexus-agent --config /etc/nexus-agent/nexus-agent.toml --check-config
 docker compose up -d --no-build
 docker compose logs -f nexus-agent
 ```
+
+应用不再读取旧环境变量。启动时通过 `--config` 选择文件，直接运行默认读取当前目录 `nexus-agent.toml`。修改配置后重新创建容器，配置文件不会自动热更新。
 
 Docker Socket 授权探针读取容器元数据和日志，应只交给可信镜像。挂载 `:ro` 不等同于 Docker API 权限隔离；需要更细粒度权限时可另设仅允许所需读取接口的 Socket 代理。
 
 ## 2. 采集范围
 
-`MONITOR_CONTAINERS=auto` 只自动选择**容器名或镜像名**含 `nginx`、`haproxy` 的运行容器。自定义命名或其他来源应显式指定名称/ID：
+`monitor_containers = ["auto"]` 只自动选择**容器名或镜像名**含 `nginx`、`haproxy` 的运行容器。自定义命名或其他来源应显式指定名称/ID：
 
-```dotenv
-MONITOR_CONTAINERS=edge-haproxy,public-nginx
+```toml
+monitor_containers = ["edge-haproxy", "public-nginx"]
 ```
 
 每 10 秒重新发现。新容器首次从 Agent 启动时刻开始读取，不会默认灌入全部旧日志；已有游标的容器在重连/重启后继续补读。
@@ -91,27 +94,27 @@ haproxy[42]: 9.9.9.9:12345 [17/Nov/2026:12:00:00.000] frontend backend/server 0/
 
 ## 4. 配置表
 
-| 变量 | 说明 |
+| TOML 字段 | 说明 |
 | --- | --- |
-| `SERVER_URL` | 必填，完整 `/api/track_batch` 地址 |
-| `AUTH_TOKEN` | 必填，后台 API key |
-| `NODE_IP` | 必填，节点身份 IP |
-| `MONITOR_CONTAINERS` | `auto` 或逗号分隔的容器名/ID |
-| `NETWORK_INTERFACES` | 空值排除 lo/docker/veth/br-/wg/tun/tap；或指定 `eth0,eth1` |
-| `BATCH_SIZE` | `500`，范围 1–2000；请求体同时限制为 512 KiB |
-| `QUEUE_MAX_EVENTS` | `50000`，范围 2000–10000000 |
-| `QUEUE_MAX_BYTES` | `67108864`，队列记录字节预算；SQLite/WAL/索引另占磁盘 |
-| `STATE_DIR` | 镜像默认 `/var/lib/nexus-agent`；直接运行默认 `./data` |
-| `DOCKER_SOCKET` | 默认 `/var/run/docker.sock` |
-| `METRICS_URL` | 默认从 `SERVER_URL` 推导 `/api/node/metrics`；二进制可直接设置，Compose 自定义时加入 environment |
+| `server_url` | 必填，完整 `/api/track_batch` 地址 |
+| `auth_token` | 必填，后台 API key |
+| `node_ip` | 必填，节点身份 IP |
+| `monitor_containers` | `["auto"]` 或容器名称/ID 数组 |
+| `network_interfaces` | `[]` 自动排除 lo/docker/veth/br-/wg/tun/tap；或 `["eth0", "eth1"]` |
+| `batch_size` | `500`，范围 1–2000，请求体同时限制为 512 KiB |
+| `queue_max_events` | `50000`，范围 2000–10000000 |
+| `queue_max_bytes` | `67108864`，范围 1 MiB–16 GiB，SQLite/WAL/索引另占磁盘 |
+| `state_dir` | 默认 `/var/lib/nexus-agent`；直接运行可显式设为 `./data` |
+| `docker_socket` | 默认 `/var/run/docker.sock` |
+| `metrics_url` | 可选，默认从 server_url 推导 `/api/node/metrics` |
 
-不要把 `/admin` 加到上报 API 前面。登录用户名、管理员密码、Google Secret 都不能代替 `AUTH_TOKEN`。
+相对路径以 TOML 所在目录为基准。未知字段、字段类型错误、无效 URL/IP、缺少必填值或超范围数字会拒绝启动。不要把 `/admin` 加到上报 API 前面，管理密码不能代替 API key。
 
 ## 5. 队列、重试与迁移
 
 日志采集独立于握手成功，记录与游标在同一个 SQLite 事务提交。HTTP 2xx 后删除相应队列；503/429 等遵循 Retry-After，其他暂时性失败退避重试。401/403 等保留记录并告警。413 会缩小批次；队列满时施加背压，不丢弃最旧的未确认记录。
 
-状态目录绑定节点 IP、上报地址和网卡选择。token 可正常轮换；改变绑定信息前先排空队列，再使用新的状态目录。升级必须保留卷，不能执行 `down -v`。旧版本迁移时可显式保留 `/var/lib/logger-agent` 作为 STATE_DIR，详见[迁移说明](MIGRATION.md)。
+状态目录绑定节点 IP、上报地址和网卡选择。token 可正常轮换；改变绑定信息前先排空队列，再使用新的状态目录。升级必须保留卷，不能执行 `down -v`。旧版本迁移时可显式保留 `/var/lib/logger-agent` 作为 `state_dir`，详见[迁移说明](MIGRATION.md)。
 
 容器日志保留时间不足、日志时间倒退、磁盘故障或主机突然掉电可能超出补读保障。SIGTERM 会尝试在 15 秒内停止采集并提交缓冲；Compose 提供 20 秒退出宽限期。
 

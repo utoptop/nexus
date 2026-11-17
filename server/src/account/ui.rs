@@ -6,13 +6,10 @@ struct Assets {
     js: String,
 }
 static ASSETS: OnceLock<Assets> = OnceLock::new();
-pub fn load() -> std::io::Result<()> {
+pub fn load(dir: &std::path::Path) -> std::io::Result<()> {
     if ASSETS.get().is_some() {
         return Ok(());
     }
-    let dir = std::env::var_os("FRONTEND_ASSET_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| "templates/assets".into());
     let _ = ASSETS.set(Assets {
         css: std::fs::read_to_string(dir.join("account.css"))?,
         js: std::fs::read_to_string(dir.join("users.js"))?,
@@ -49,7 +46,7 @@ pub fn login_html(config: &AuthConfig, error: Option<&str>, csrf: &str) -> Strin
         error: message,
         csrf,
         google: config.client_id.is_some(),
-        site_key: &std::env::var("CF_TURNSTILE_SITE_KEY").unwrap_or_default(),
+        site_key: if config.turnstile.enabled { &config.turnstile.site_key } else { "" },
     }
     .render()
     .unwrap()

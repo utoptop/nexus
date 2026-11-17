@@ -73,10 +73,8 @@ pub async fn admin_handler(AdminAuthPage(user): AdminAuthPage, headers: HeaderMa
         if f_lat == 0.0 && f_lon == 0.0 { f_lat = current_loc.lat; f_lon = current_loc.lon; } nodes_map.insert(name, (f_lat, f_lon));
     }
     
-    let map_api_key = std::env::var("CARTO_API_KEY")
-        .or_else(|_| std::env::var("MAP_API_KEY"))
-        .unwrap_or_default();
-    let map_tile_url = std::env::var("MAP_TILE_URL").unwrap_or_default();
+    let map_api_key = state.config.map.api_key.clone();
+    let map_tile_url = state.config.map.tile_url.clone();
 
     let html=visuals::generate_admin_ui(
         &selected_node, active_servers, stats, history, heatmap, keys, nodes, serde_json::to_string(&nodes_map).unwrap(),

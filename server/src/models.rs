@@ -78,6 +78,7 @@ pub struct ServerLocation { pub lat: f64, pub lon: f64, pub city: String }
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
 pub struct AppState {
+    pub config: Arc<crate::config::Config>,
     pub db: sqlx::PgPool,
     pub auth: Arc<crate::account::config::AuthConfig>,
     pub server_loc: Arc<ArcSwap<ServerLocation>>,

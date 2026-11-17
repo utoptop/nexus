@@ -19,8 +19,9 @@ LABEL org.opencontainers.image.title="Nexus" \
       org.opencontainers.image.version="1.0.0" \
       org.opencontainers.image.source="https://github.com/utoptop/nexus" \
       org.opencontainers.image.revision="${VCS_REF}"
-ENV TZ=Asia/Shanghai RUST_LOG=info FRONTEND_ASSET_DIR=/app/templates/assets
+ENV TZ=Asia/Shanghai
 COPY --from=builder --chown=nonroot:nonroot /nexus /app/nexus
 COPY --chown=nonroot:nonroot templates/assets/ /app/templates/assets/
 EXPOSE 3000
-CMD ["/app/nexus"]
+ENTRYPOINT ["/app/nexus"]
+CMD ["--config", "/etc/nexus/nexus.toml"]

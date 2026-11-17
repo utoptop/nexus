@@ -27,7 +27,7 @@ pub async fn ws_handler(
                 .get("host")
                 .and_then(|h| h.to_str().ok())
                 .unwrap_or(""),
-            "WebSocket origin rejected; check PUBLIC_BASE_URL and ALLOWED_ORIGINS"
+            "WebSocket origin rejected; check auth.public_base_url and auth.allowed_origins in nexus.toml"
         );
         return StatusCode::FORBIDDEN.into_response();
     }

@@ -127,7 +127,7 @@ window.NodeStream = (() => {
     }
     function connected(){diagnostic('');sync(true);}
     function disconnected(){
-        diagnostic('实时通道未连接，访客轨迹暂停；正在同步节点状态。请检查登录会话、PUBLIC_BASE_URL / ALLOWED_ORIGINS 与访问域名是否匹配，以及 __ADMIN_BASE__/ws 的 WebSocket 转发。');sync(true);
+        diagnostic('实时通道未连接，访客轨迹暂停；正在同步节点状态。请检查登录会话、auth.public_base_url / auth.allowed_origins 与访问域名是否匹配，以及 __ADMIN_BASE__/ws 的 WebSocket 转发。');sync(true);
     }
     setInterval(()=>{if(document.hidden)return;const now=performance.now(),connected=typeof ws!=='undefined'&&ws?.readyState===1;if(now-lastPoll>=(connected?30000:10000)){lastPoll=now;sync();}},5000);
     queueMicrotask(()=>{for(const n of Object.values(nodeQuotaData))acceptPresence(n);});

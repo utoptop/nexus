@@ -1,6 +1,7 @@
 """Real Docker Engine smoke test for native streaming and stock log formats.
 
-Requires local images utoptop/nexus-agent:1.0 and nexus-agent-bench-fixture.
+Requires a TOML-capable AGENT_IMAGE (default nexus-agent:config-test)
+and nexus-agent-bench-fixture.
 Creates/removes only uniquely named test resources.
 """
 import json
@@ -11,6 +12,8 @@ import time
 import urllib.request
 import urllib.error
 import uuid
+import tempfile
+from pathlib import Path
 
 
 def docker(*args, check=True):
@@ -19,6 +22,7 @@ def docker(*args, check=True):
 
 prefix="lag-smoke-"+uuid.uuid4().hex[:8]
 network=prefix+"-net"; server=prefix+"-server"; source=prefix+"-nginx"; agent=prefix+"-agent"
+temporary=tempfile.TemporaryDirectory(prefix="nexus-agent-smoke-")
 try:
     docker("network","create",network)
     docker("run","-d","--name",server,"--network",network,"-p","127.0.0.1::8080","nexus-agent-bench-fixture")
@@ -43,9 +47,11 @@ try:
     ]
     code="import time,sys;time.sleep(5);"+";".join(f"print({record!r},file=sys.{'stderr' if i==1 else 'stdout'},flush=True)" for i,record in enumerate(records))+";time.sleep(2)"
     docker("run","-d","--name",source,"--log-driver","json-file","--entrypoint","python3","nexus-agent-bench-fixture","-u","-c",code)
+    config=Path(temporary.name)/"nexus-agent.toml"
+    values=dict(server_url=f"http://{server}:8080/api/track_batch",auth_token="smoke",node_ip="1.1.1.1",monitor_containers=[source])
+    config.write_text("\n".join(f"{k} = {json.dumps(v)}" for k,v in values.items()))
     docker("run","-d","--name",agent,"--network",network,"-v","/var/run/docker.sock:/var/run/docker.sock:ro",
-           "-e",f"SERVER_URL=http://{server}:8080/api/track_batch","-e","AUTH_TOKEN=smoke",
-           "-e","NODE_IP=1.1.1.1","-e",f"MONITOR_CONTAINERS={source}",os.environ.get("AGENT_IMAGE", "utoptop/nexus-agent:1.0"))
+           "-v",f"{config}:/etc/nexus-agent/nexus-agent.toml:ro",os.environ.get("AGENT_IMAGE", "nexus-agent:config-test"))
     for _ in range(300):
         if accepted()==3:break
         time.sleep(.1)
@@ -61,3 +67,4 @@ except Exception:
 finally:
     docker("rm","-f",agent,source,server,check=False)
     docker("network","rm",network,check=False)
+    temporary.cleanup()

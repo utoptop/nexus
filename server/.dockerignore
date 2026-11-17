@@ -13,3 +13,6 @@ check_log.txt
 **/.DS_Store
 tests/
 *.bak
+*.toml
+!Cargo.toml
+config/

@@ -1,0 +1,48 @@
+# Copy to config/nexus.toml. Application settings are read only from this file.
+# Restart Nexus after editing; --check-config validates without connecting to DB.
+[server]
+listen_addr = "0.0.0.0:3000"
+log_filter = "info"
+frontend_asset_dir = "/app/templates/assets"
+geoip_database = "/app/GeoLite2-City.mmdb"
+
+[database]
+host = "db"
+port = 5432
+user = "nexus"
+name = "nexus"
+# Shared with PostgreSQL through a Docker secret.
+password_file = "/run/secrets/postgres_password"
+max_connections = 24
+# For an existing/external DB, remove password_file and use the original URL:
+# url = "postgres://USER:URL_ENCODED_PASSWORD@HOST:5432/DATABASE"
+
+[auth]
+admin_path = "/admin"
+public_base_url = "https://nexus.example.com"
+allowed_origins = [] # e.g. ["https://proxy.example.com"]
+session_hours = 24
+initial_username = "admin"
+initial_password = "" # REQUIRED on a fresh database: 12–1024 bytes
+
+[turnstile]
+# Disabled means no Cloudflare widget or verification requests.
+enabled = false
+site_key = ""
+secret_key = ""
+timeout_seconds = 10
+
+[oidc]
+issuer_url = "https://accounts.google.com"
+client_id = ""
+client_secret = ""
+
+[map]
+api_key = ""
+tile_url = ""
+
+[limits]
+geo_cache_mb = 16
+ingest_concurrency = 64
+live_queue_capacity = 8192
+log_queue_capacity = 16384

@@ -4,8 +4,9 @@
 **/node_modules/
 .env
 .env.*
-!.env.example
-!**/.env.example
+config/nexus.toml
+config/postgres-password
+agent/config/nexus-agent.toml
 pgdata/
 data/
 geo-data/
