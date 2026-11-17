@@ -126,7 +126,7 @@ pub fn generate_admin_ui(
     map_api_key: String,
     map_tile_url: String,
 ) -> String {
-    let t_title = if is_zh { "矩阵分布节点监测" } else { "Matrix Node Monitor" };
+    let t_title = if is_zh { "NEXUS · 实时节点监测" } else { "NEXUS · Live Node Monitor" };
     let t_freq = if is_zh { "🔥 高频服务" } else { "🔥 High Freq Services" };
     let t_playback = if is_zh { "▶️ 轨迹回放" } else { "▶️ Playback" };
     let t_geo_off = if is_zh { "🌍 区域热力: 关" } else { "🌍 Geo Heatmap: Off" };

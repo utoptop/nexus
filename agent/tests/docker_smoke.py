@@ -1,13 +1,15 @@
 """Real Docker Engine smoke test for native streaming and stock log formats.
 
-Requires local images logger-agent:performance-local and nexus-agent-bench-fixture.
+Requires local images utoptop/nexus-agent:1.0 and nexus-agent-bench-fixture.
 Creates/removes only uniquely named test resources.
 """
 import json
+import http.client
 import os
 import subprocess
 import time
 import urllib.request
+import urllib.error
 import uuid
 
 
@@ -21,6 +23,19 @@ try:
     docker("network","create",network)
     docker("run","-d","--name",server,"--network",network,"-p","127.0.0.1::8080","nexus-agent-bench-fixture")
     port=json.loads(docker("inspect",server))[0]["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
+    # This receiver is local to the test. Ignore workstation proxy variables,
+    # and wait for Python to listen before starting the source and the agent.
+    local_http=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    def accepted():
+        with local_http.open(f"http://127.0.0.1:{port}/control/state",timeout=5) as response:
+            return json.load(response)["accepted"]
+    for _ in range(100):
+        try:
+            assert accepted()==0
+            break
+        except (urllib.error.URLError, http.client.HTTPException, OSError):
+            time.sleep(.1)
+    else:raise AssertionError("test receiver did not become ready")
     records=[
         '8.8.8.8 - - [17/Nov/2026:12:00:00 +0800] "GET / HTTP/1.1" 200 100 "-" "test"',
         'haproxy[42]: 9.9.9.9:1234 [17/Nov/2026:12:00:00.000] front back/srv 0/0/1/2/3 200 123 - - ---- 1/1/1/1/0 0/0 "GET / HTTP/1.1"',
@@ -31,9 +46,6 @@ try:
     docker("run","-d","--name",agent,"--network",network,"-v","/var/run/docker.sock:/var/run/docker.sock:ro",
            "-e",f"SERVER_URL=http://{server}:8080/api/track_batch","-e","AUTH_TOKEN=smoke",
            "-e","NODE_IP=1.1.1.1","-e",f"MONITOR_CONTAINERS={source}",os.environ.get("AGENT_IMAGE", "utoptop/nexus-agent:1.0"))
-    def accepted():
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/control/state",timeout=5) as response:
-            return json.load(response)["accepted"]
     for _ in range(300):
         if accepted()==3:break
         time.sleep(.1)
