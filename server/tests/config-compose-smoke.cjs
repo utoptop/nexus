@@ -67,6 +67,37 @@ let browser,started=false;
         assert.equal(await pages[i].evaluate(()=>nodeHits['Config QA']),before[i].hits+3);
         await pages[i].waitForFunction(()=>TrajectoryPool.inspect().drawnByNode['Config QA']>=3);
     }
+    // Filtering happens before SQL aggregation/LIMIT and preserves the stored logs.
+    const sql=text=>execFileSync('docker',['compose','--project-directory',temp,'-p',project,'exec','-T','db','psql','-U','nexus','-d','nexus','-At','-v','ON_ERROR_STOP=1'],{encoding:'utf8',input:text}).trim();
+    for(let i=0;i<100&&Number(sql('SELECT COUNT(*) FROM visitor_logs;'))<3;i++)await sleep(100);
+    const storedBefore=Number(sql('SELECT COUNT(*) FROM visitor_logs;'));
+    sql("INSERT INTO visitor_logs(ip_id,server_name,target_domain,language,visit_time) SELECT d.id,'198.18.20.10',x.domain,'zh',NOW() FROM ip_dimensions d CROSS JOIN (VALUES ('LOCALHOST.:443'),('https://127.0.0.1:3000/admin'),('localhost.business.test'),('api.localhost'),(NULL),('-'),('custom.nexus.test')) x(domain) WHERE d.ip_address='8.8.8.8';");
+    const page=pages[0];
+    const query=async(path)=>page.evaluate(async path=>{const r=await fetch(path);if(!r.ok)throw Error('Query failed '+r.status);return r.json();},'/admin/api/'+path);
+    const sum=data=>data.stats.reduce((n,s)=>n+s[2],0);
+    const all=await query('data?days=1'),filtered=await query('data?days=1&hide_nexus=true&nexus_host=localhost');
+    assert.equal(sum(all),storedBefore+7);assert.equal(sum(filtered),sum(all)-2);
+    assert.equal(filtered.history.length,sum(filtered));assert.equal(filtered.heatmap.reduce((n,h)=>n+h[1],0),sum(filtered));
+    assert.equal((await query('playback?days=1&hide_nexus=true&nexus_host=localhost')).length,sum(filtered));
+    assert.ok(filtered.stats.some(s=>s[8]==='localhost.business.test'));assert.ok(filtered.stats.some(s=>s[8]==='api.localhost'));
+    assert.equal(sum(await query('data?days=1&hide_nexus=true&nexus_host=custom.nexus.test')),sum(all)-3);
+    assert.equal(Number(sql('SELECT COUNT(*) FROM visitor_logs;')),sum(all));
+    await page.evaluate(async()=>{await VisitorFilter.set(true);switchDashMode('dashboard');TrafficGlobe.setExpanded(true);});
+    await page.waitForFunction(()=>document.querySelectorAll('.globe-visitor-row').length>0);
+    const accepted=await page.evaluate(()=>TrajectoryPool.inspect().admitted),hits=await page.evaluate(()=>nodeHits['Config QA']);
+    docker('exec',source,'python3','-c',`import os;fd=os.open('/proc/1/fd/1',os.O_WRONLY);os.write(fd,${JSON.stringify('TRACK_L7|8.8.8.8|{localhost:'+port+'}|\nTRACK_L7|8.8.8.8|{business.example}|\n')}.encode());os.close(fd)`);
+    await page.waitForFunction(n=>TrajectoryPool.inspect().admitted===n,accepted+1);
+    assert.equal(await page.evaluate(()=>nodeHits['Config QA']),hits+1);
+    assert.equal(await page.evaluate(()=>nodeQuotaData['198.18.20.10'].online),true);
+    for(let i=0;i<100&&Number(sql('SELECT COUNT(*) FROM visitor_logs;'))<storedBefore+9;i++)await sleep(100);
+    const replay=await query('playback?days=1&hide_nexus=true&nexus_host=localhost');
+    await page.locator('#globe-replay-start').click();await page.waitForFunction(()=>pbState.active);
+    assert.equal(await page.evaluate(()=>TrafficGlobe.inspect().expanded),true);
+    await page.locator('#pb-play-btn').click();await page.evaluate(()=>seekPlayback(pbState.hist.length-1));
+    await page.waitForFunction(()=>pbState.seekTarget===null&&pbState.index===pbState.hist.length);
+    assert.equal(await page.evaluate(()=>Object.values(nodeHits).reduce((a,b)=>a+b,0)),replay.length);
+    await page.locator('#playback-ctrl .danger-btn').click();await page.waitForFunction(()=>!pbState.active&&!pbState.loading);
+    console.log('PASS: exact-domain filtering of SQL stats/history/heat/replay and agent live events, retained raw logs, globe visitors and replay controls.');
     assert.deepEqual(errors,[]);
     console.log('PASS: fresh Compose without .env, shared password file, config validation, login, agent Docker logs, online metrics and trajectories on both origins.');
 }catch(error){

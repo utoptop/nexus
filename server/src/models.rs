@@ -98,7 +98,10 @@ pub struct AppState {
 }
 
 #[derive(Deserialize)]
-pub struct AdminParams { pub node: Option<String>, pub days: Option<f64> }
+pub struct AdminParams {
+    pub node: Option<String>, pub days: Option<f64>,
+    pub hide_nexus: Option<bool>, pub nexus_host: Option<String>,
+}
 #[derive(Deserialize)]
 pub struct ActionParams { pub token: Option<String>, pub ip: Option<String>, pub name: Option<String>, pub loc_ip: Option<String> }
 #[derive(Deserialize)]

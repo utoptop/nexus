@@ -101,3 +101,10 @@ CHROME_PATH=/path/to/chrome node tests/globe-fullscreen-browser.cjs
 高清回归检查实际画布像素、4K/2K 地表纹理与球面网格，覆盖 Retina、原生 4K、手机、设备像素比变化、WebGL 降级/恢复和隐藏视图停止绘制。默认截图目录为 `/tmp/nexus-artifacts`；可用 `GLOBE_ARTIFACT_DIR` 改写。
 
 桌面 GPU 画布上限为全屏 8294400 / 总览 2073600 像素；手机和低内存设备为 2000000 / 1000000 像素，最高 DPR 2。实际大小还受窗口、GPU 上限和慢帧降载约束。`bufferBytes` 统计纹理（含 mipmap）及绘制缓冲，不包含浏览器管理的 framebuffer/MSAA 内存。
+
+
+## 访客过滤与地球回放验收
+
+生成最新 dashboard fixture 后，运行 `node server/tests/globe-visitors-browser.cjs`，验证域名精确匹配、浏览器偏好保存、访客滚动位置、内容转义、地球回放/暂停/倍速/跳转/停止以及手机横竖屏控件。
+
+`config-compose-smoke.cjs` 还会向独立数据库写入大小写、URL、端口、相似域名和空域名样例，验证统计、历史、热力和回放在 SQL 聚合及 LIMIT 前过滤，随后用真实探针验证实时过滤、原始日志保留及地球回放。该脚本的服务端镜像必须包含本次更新。

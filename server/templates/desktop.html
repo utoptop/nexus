@@ -438,7 +438,7 @@ body { background-color: #020617; } /* Deepest space blue/black */
         <div style="display:flex; align-items:center; gap:10px; flex-shrink: 0;">
             <button class="danger-btn" style="padding:6px 12px; font-size:14px;" onclick="stopPlayback(event)" title="Stop">⏹️</button>
             <button class="btn play-btn" id="pb-play-btn" style="padding:6px 12px; font-size:14px;" onclick="togglePlayPause(event)" title="Pause/Play">⏸️</button>
-            <select id="pb-speed" class="cyber-select" style="border-color:#10b981; color:#10b981; padding:6px 8px;">
+            <select id="pb-speed" title="{% if lang == "zh" %}按访问时间顺序播放，1x 每秒 5 条{% else %}Chronological replay, 1x = 5 visits per second{% endif %}" class="cyber-select" style="border-color:#10b981; color:#10b981; padding:6px 8px;">
                 <option value="400">0.5x</option><option value="200" selected>1.0x</option><option value="100">2.0x</option>
                 <option value="40">5.0x</option><option value="25">8.0x</option><option value="20">10.0x</option><option value="4">50x</option><option value="2">100x</option>
             </select>
@@ -448,7 +448,7 @@ body { background-color: #020617; } /* Deepest space blue/black */
                 <span id="pb-current-node" style="color:#06b6d4; font-weight:600; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">---</span>
                 <span id="pb-current" style="color:#f59e0b; font-weight:600;">Waiting...</span>
             </div>
-            <input type="range" id="pb-slider" class="opacity-slider" min="0" max="100" value="0" style="width:100%; accent-color:#f59e0b; height: 6px;">
+            <input type="range" id="pb-slider" aria-label="{% if lang == "zh" %}回放进度{% else %}Playback position{% endif %}" class="opacity-slider" min="0" max="100" value="0" style="width:100%; accent-color:#f59e0b; height: 6px;">
         </div>
     </div>
 
@@ -467,9 +467,11 @@ body { background-color: #020617; } /* Deepest space blue/black */
                     </h2>
                     <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
                         <div class="visitor-preferences">
-                            <button id="visitor-options-button" class="cyber-select" type="button" aria-expanded="false" aria-controls="visitor-options">◐ {% if lang == "zh" %}透明度{% else %}Opacity{% endif %}</button>
+                            <button id="visitor-options-button" class="cyber-select" type="button" aria-expanded="false" aria-controls="visitor-options">◐ {% if lang == "zh" %}显示{% else %}Display{% endif %}</button>
                             <div id="visitor-options" class="visitor-options" hidden>
                                 <strong>{% if lang == "zh" %}访客显示{% else %}Visitor appearance{% endif %}</strong>
+                                <label class="nexus-filter-option"><input type="checkbox" id="hide-nexus-visitors" data-hide-nexus onchange="VisitorFilter.set(this.checked)"><span>{% if lang == "zh" %}隐藏 Nexus 域名访问{% else %}Hide visits to Nexus{% endif %}</span></label>
+                                <small>{% if lang == "zh" %}过滤当前入口、主域名及代理入口的访问记录。{% else %}Filter visits to this entry, the main domain and proxy entries.{% endif %}</small>
                                 <label for="panel-opacity">{% if lang == "zh" %}访客面板{% else %}Visitor panel{% endif %}<output id="panel-opacity-value">85%</output></label>
                                 <input type="range" id="panel-opacity" min="0" max="1" step="0.05" value="0.85">
                                 <label for="visitor-opacity">{% if lang == "zh" %}地图访客气泡{% else %}Visitor lights & bubbles{% endif %}<output id="visitor-opacity-value">100%</output></label>
@@ -793,6 +795,7 @@ body { background-color: #020617; } /* Deepest space blue/black */
     const isMobile = matchMedia('(max-width: 768px), (max-height: 500px) and (orientation: landscape)').matches;
     {{ coastline_js|safe }}
     {{ runtime_js|safe }}
+    const nexusDomains = {{ nexus_domains_json|safe }};
     {{ controller_js|safe }}
     {{ route_js|safe }}
     
@@ -1097,6 +1100,7 @@ body { background-color: #020617; } /* Deepest space blue/black */
     let statsMap = new Map();
     function rebuildStatsMap() {
         statsMap.clear(); overviewRevision++;
+        currentStats=currentStats.filter(s=>VisitorFilter.accepts(s[8]));
         for (const row of currentStats.slice(0, renderLimits.stats).reverse()) { row[7] = canonicalNode(row[7]); statsMap.set(statKey(row), row); }
         tableDirty = true;
     }
@@ -1457,7 +1461,7 @@ body { background-color: #020617; } /* Deepest space blue/black */
 
     let currentHeatmap = {{ hm_json|safe }};
     let hmChart = null;
-    let pbState = { active: false, playing: false, hist: [], index: 0, rAF: null, lastTime: 0, seekTarget: null, resumeAfterSeek: false };
+    let pbState = { active: false, loading: false, playing: false, hist: [], index: 0, rAF: null, lastTime: 0, seekTarget: null, resumeAfterSeek: false };
 
     function drawHM() {
         const ctx = document.getElementById('hm-chart').getContext('2d');
@@ -1550,10 +1554,9 @@ body { background-color: #020617; } /* Deepest space blue/black */
 
     async function startPlayback(forceRestart = false) {
         closeRightMenu(); if (pbState.active && !forceRestart) return;
-        switchDashMode('map');
         dataRequest?.abort(); playbackRequest?.abort();
         const controller = new AbortController(); playbackRequest = controller;
-        ++requestVersion;
+        ++requestVersion; pbState.loading = true;
         liveQueue.clear(); cancelAnimationFrame(liveFrame); liveFrame = 0;
         if (forceRestart && pbState.rAF) { cancelAnimationFrame(pbState.rAF); pbState.playing = false; }
         
@@ -1570,27 +1573,27 @@ body { background-color: #020617; } /* Deepest space blue/black */
         if(vals.length === 0) vals.push('All');
         
         const filterStr = encodeURIComponent(vals.join(','));
-        
+        const timeout = setTimeout(()=>controller.abort(new Error("Playback request timed out")),20000);
         try {
-            const res = await fetch(`__ADMIN_BASE__/api/playback?node=${filterStr}&days=${days}`, { signal: controller.signal });
+            const res = await fetch(`__ADMIN_BASE__/api/playback?node=${filterStr}&days=${days}${VisitorFilter.query()}`, { signal: controller.signal });
             if (!res.ok && res.status !== 401) throw new Error("Playback request failed");
             if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; }
             const histData = await res.json();
             
             if (controller !== playbackRequest || controller.signal.aborted) return;
-            pbState.hist = histData; pbState.seekTarget = null;
+            pbState.hist = histData.filter(h=>VisitorFilter.accepts(h[6])); pbState.seekTarget = null;
             liveQueue.clear(); cancelAnimationFrame(liveFrame); liveFrame = 0;
             if (pbState.hist.length === 0) { 
                 alert(isZh ? "选定时间内无历史数据" : "No history data in scope"); 
                 document.querySelectorAll('.main-play-btn').forEach(btn => { btn.innerText = '{{ t_playback }}'; btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; });
-                pbState.active = false; document.body.classList.remove('playback-active'); document.getElementById('playback-ctrl').style.display = 'none'; return;
+                stopPlayback(null); return;
             }
             
             clearActiveLines(); pendingMarkers = []; window.historyLines.clearLayers(); 
             if (isSpiderfied) cluster.unspiderfy(); cluster.clearLayers();
             if (enableFog && fogLayer) { map.removeLayer(fogLayer); fogLayer = L.heatLayer([], { radius:45, blur:35, max:10, gradient: { 0.1: 'rgba(0, 229, 255, 0.1)', 0.3: 'rgba(0, 255, 102, 0.3)', 0.6: 'rgba(255, 204, 0, 0.6)', 0.9: 'rgba(255, 153, 0, 0.8)', 1.0: 'rgba(255, 0, 0, 1)' } }).addTo(map); }
             
-            pbState.active = true; document.body.classList.add('playback-active'); pbState.playing = true; pbState.index = 0; pbState.lastTime = performance.now();
+            pbState.loading = false; pbState.active = true; document.body.classList.add('playback-active'); pbState.playing = true; pbState.index = 0; pbState.lastTime = performance.now();
             document.getElementById('playback-ctrl').style.display = 'flex';
             
             const timeSel = document.getElementById('time-sel');
@@ -1609,18 +1612,19 @@ body { background-color: #020617; } /* Deepest space blue/black */
             refreshNodeLayout(); drawHM(); pbState.rAF = requestAnimationFrame(pbLoop);
             if(isMobile) toggleMobileDrawer(false); 
         } catch(e) {
-            if (e.name === "AbortError") return;
+            if (e.name === "AbortError" || controller !== playbackRequest) return;
+            stopPlayback(null);
             alert(isZh ? "加载回放数据失败" : "Failed to load playback data");
             document.querySelectorAll('.main-play-btn').forEach(btn => { btn.innerText = '{{ t_playback }}'; btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; });
-        }
+        } finally { clearTimeout(timeout); }
     }
     
     function stopPlayback(event, noRefetch = false) {
         if(event) event.preventDefault();
-        playbackRequest?.abort(); playbackRequest = null; pbState.hist = []; pbState.seekTarget = null;
+        playbackRequest?.abort(); playbackRequest = null; pbState.loading = false; pbState.hist = []; pbState.seekTarget = null;
         pbState.active = false; document.body.classList.remove('playback-active'); pbState.playing = false; if(pbState.rAF) cancelAnimationFrame(pbState.rAF);
         document.getElementById('playback-ctrl').style.display = 'none'; document.getElementById('playback-badge').style.display = 'none';
-        document.querySelectorAll('.main-play-btn').forEach(btn => { btn.innerText = '{{ t_playback }}'; btn.classList.remove('active-btn'); });
+        document.querySelectorAll('.main-play-btn').forEach(btn => { btn.innerText = '{{ t_playback }}'; btn.classList.remove('active-btn'); btn.style.opacity='1'; btn.style.pointerEvents='auto'; });
         clearActiveLines(); if(vsContainer) vsContainer.scrollTop = 0; if(!noRefetch) applyFilters(true); 
     }
     
@@ -1799,7 +1803,7 @@ body { background-color: #020617; } /* Deepest space blue/black */
         } catch (e) { alert('❌ 网络请求失败'); }
     }
 
-    let globalHistory = {{ history_json|safe }}; const nodeHits = {}; const nodeMarkers = {};
+    let globalHistory = ({{ history_json|safe }}).filter(h=>VisitorFilter.accepts(h[6])); const nodeHits = {}; const nodeMarkers = {};
     function calculateNodeHits() { for (let k in nodeHits) delete nodeHits[k]; currentStats.forEach(s => { const nName = s[7]; nodeHits[nName] = (nodeHits[nName] || 0) + s[2]; }); }
 
     for(let k in trueNodesMap) {
@@ -1811,7 +1815,7 @@ body { background-color: #020617; } /* Deepest space blue/black */
     async function applyFilters(fetchData = true, event) {
         if(event) event.preventDefault();
         
-        if (pbState.active) {
+        if (pbState.active || pbState.loading) {
             if (fetchData) {
                 document.querySelectorAll('.multi-sel-menu').forEach(m => m.classList.remove('show')); let vals = []; const activeMenu = document.querySelector('.multi-sel-menu.show') || document.querySelectorAll('.multi-sel-menu')[0]; const cbAll = activeMenu.querySelector('.cb-all');
                 if (cbAll && cbAll.checked) { vals.push('All'); } else { activeMenu.querySelectorAll('.node-cb:checked').forEach(el => { if (!vals.includes(el.value)) vals.push(el.value); }); }
@@ -1833,9 +1837,9 @@ body { background-color: #020617; } /* Deepest space blue/black */
             const days = document.getElementById('time-sel').value; currentFilters.length = 0; currentFilters.push(...vals);
             
             try {
-                const filterStr = encodeURIComponent(vals.join(',')); const res = await fetch(`__ADMIN_BASE__/api/data?node=${filterStr}&days=${days}`, { signal: controller.signal }); if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; } if (!res.ok) throw new Error("Data request failed"); const data = await res.json();
+                const filterStr = encodeURIComponent(vals.join(',')); const res = await fetch(`__ADMIN_BASE__/api/data?node=${filterStr}&days=${days}${VisitorFilter.query()}`, { signal: controller.signal }); if (res.status === 401) { location.href = '__ADMIN_BASE__/login'; return; } if (!res.ok) throw new Error("Data request failed"); const data = await res.json();
                 if (version !== requestVersion || pbState.active) return;
-                currentStats = data.stats; rebuildStatsMap(); globalHistory = data.history; resetHeat(data.heatmap); statsEvicted = 0; drawHM();
+                currentStats = data.stats; rebuildStatsMap(); globalHistory = data.history.filter(h=>VisitorFilter.accepts(h[6])); resetHeat(data.heatmap); statsEvicted = 0; drawHM();
                 if (enableGeoHeatmap) renderHighFreqGeo(); if (enableFog) renderFog();
                 const selCountText = vals.includes('All') ? texts.global : vals.join(', '); document.querySelectorAll('.btn-text').forEach(el => { el.innerText = '⚡ ' + selCountText; el.title = selCountText; });
             } catch(e) { if (e.name === "AbortError") return; document.querySelectorAll('.btn-text').forEach(el => el.innerText = "❌ Err"); setTimeout(() => document.querySelectorAll('.btn-text').forEach(el => el.innerText = "⚡ Retry"), 2000); return; }
@@ -2338,8 +2342,7 @@ body { background-color: #020617; } /* Deepest space blue/black */
         };
     }
     // Seed the initial snapshot before live events arrive, so startup cannot clear their effects.
-    applyFilters(false);
-    connect();
+    applyFilters(VisitorFilter.enabled).finally(connect);
 
     document.addEventListener('visibilitychange', () => {
         cancelAnimationFrame(liveFrame); liveFrame = 0;

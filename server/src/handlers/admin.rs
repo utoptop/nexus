@@ -12,7 +12,33 @@ use crate::visuals;
 use crate::db::fetch_dashboard_data;
 use crate::error::AppError;
 
+// Match only exact configured hosts, allowing a URL, port or trailing DNS dot.
+// Filtering is a dashboard preference; stored logs and node heartbeats are retained.
+fn domain_host(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 1024 { return None; }
+    let url = reqwest::Url::parse(&if value.contains("://") { value.to_owned() } else { format!("http://{value}") }).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() || url.password().is_some() { return None; }
+    Some(url.host_str()?.trim_end_matches('.').to_ascii_lowercase())
+}
+fn nexus_domains(auth: &crate::account::config::AuthConfig) -> Vec<String> {
+    let mut hosts: Vec<_> = auth.public_origin.iter().chain(auth.allowed_origins.iter()).filter_map(|s| domain_host(s)).collect();
+    hosts.sort(); hosts.dedup(); hosts
+}
+fn hidden_domain_pattern(auth: &crate::account::config::AuthConfig, params: &AdminParams) -> String {
+    if params.hide_nexus != Some(true) { return String::new(); }
+    let mut hosts = nexus_domains(auth);
+    if let Some(host) = params.nexus_host.as_deref().and_then(domain_host) { hosts.push(host); }
+    hosts.sort(); hosts.dedup();
+    if hosts.is_empty() { return String::new(); }
+    let escaped: Vec<String> = hosts.iter().map(|host| host.chars().flat_map(|c| {
+        if r"\.^$|?*+()[]{}".contains(c) { vec!['\\', c] } else { vec![c] }
+    }).collect()).collect();
+    format!(r"^(https?://)?({})\.?(:[0-9]+)?([/?#].*)?$", escaped.join("|"))
+}
+
 pub async fn admin_playback_handler(_auth: AdminAuth, Query(params): Query<AdminParams>, State(state): State<AppState>) -> Result<Response, AppError> {
+    let hidden_domains = hidden_domain_pattern(&state.auth, &params);
     let selected_node = params.node.unwrap_or_else(|| "All".to_string());
     let days = crate::db::normalize_days(params.days.unwrap_or(1.0));
     let nodes: Vec<String> = selected_node.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
@@ -26,16 +52,17 @@ pub async fn admin_playback_handler(_auth: AdminAuth, Query(params): Query<Admin
         SELECT d.lat, d.lon, d.location, COALESCE(rn.display_name, vl.server_name), d.ip_address, CAST(vl.visit_time AS TEXT), COALESCE(vl.target_domain, '-') 
         FROM visitor_logs vl JOIN ip_dimensions d ON vl.ip_id = d.id
         LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name
-        WHERE d.lat IS NOT NULL AND ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) AND vl.visit_time >= $3 ORDER BY vl.visit_time ASC LIMIT 30000
+        WHERE d.lat IS NOT NULL AND ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) AND vl.visit_time >= $3 AND ($4 = '' OR btrim(COALESCE(vl.target_domain, '')) !~* $4) ORDER BY vl.visit_time ASC LIMIT 30000
         "#
-    ).bind(is_all).bind(&nodes).bind(cutoff).fetch_all(&state.db).await?;
+    ).bind(is_all).bind(&nodes).bind(cutoff).bind(&hidden_domains).fetch_all(&state.db).await?;
     
     let mut resp_headers = HeaderMap::new(); resp_headers.insert(header::CACHE_CONTROL, "no-store, max-age=0".parse().unwrap());
     Ok((resp_headers, axum::Json(history)).into_response())
 }
 
 pub async fn admin_data_handler(_auth: AdminAuth, Query(params): Query<AdminParams>, State(state): State<AppState>) -> Result<Response, AppError> {
-    let (stats, history, heatmap) = fetch_dashboard_data(&state.db, &params.node.unwrap_or_else(|| "All".to_string()), params.days.unwrap_or(1.0)).await?;
+    let hidden_domains = hidden_domain_pattern(&state.auth, &params);
+    let (stats, history, heatmap) = fetch_dashboard_data(&state.db, &params.node.unwrap_or_else(|| "All".to_string()), params.days.unwrap_or(1.0), &hidden_domains).await?;
     let mut clean_stats = Vec::new(); for s in stats { clean_stats.push((s.0, s.1, s.2, s.3, s.4, s.5.unwrap_or(0.0), s.6.unwrap_or(0.0), s.7, s.8)); }
     let mut resp_headers = HeaderMap::new(); resp_headers.insert(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0".parse().unwrap());
     Ok((resp_headers, axum::Json(serde_json::json!({ "stats": clean_stats, "history": history, "heatmap": heatmap }))).into_response())
@@ -48,8 +75,9 @@ pub async fn admin_handler(AdminAuthPage(user): AdminAuthPage, headers: HeaderMa
     let mut is_zh = lang_header.to_lowercase().contains("zh");
     if let Some(cookie_val) = headers.get(header::COOKIE).and_then(|h| h.to_str().ok()) { if cookie_val.contains("lang=zh") { is_zh = true; } else if cookie_val.contains("lang=en") { is_zh = false; } }
     
+    let hidden_domains = hidden_domain_pattern(&state.auth, &params);
     let selected_node = params.node.unwrap_or_else(|| "All".to_string());
-    let (stats, history, heatmap) = fetch_dashboard_data(&state.db, &selected_node, params.days.unwrap_or(1.0)).await?;
+    let (stats, history, heatmap) = fetch_dashboard_data(&state.db, &selected_node, params.days.unwrap_or(1.0), &hidden_domains).await?;
     let mut active_servers: Vec<String> = sqlx::query_scalar("SELECT COALESCE(NULLIF(TRIM(custom_name), ''), node_ip) FROM api_nodes ORDER BY last_active DESC").fetch_all(&state.db).await?;
     if !active_servers.contains(&"Direct Access".to_string()) { active_servers.insert(0, "Direct Access".to_string()); }
     let keys: Vec<(String, String)> = if user.role=="admin" { sqlx::query_as("SELECT token, CAST(created_at AS TEXT) FROM api_keys ORDER BY id DESC").fetch_all(&state.db).await? } else {vec![]};
@@ -87,6 +115,7 @@ pub async fn admin_handler(AdminAuthPage(user): AdminAuthPage, headers: HeaderMa
         node_quota_json,
         map_api_key,
         map_tile_url,
+        nexus_domains(&state.auth),
     );
     Ok(crate::account::page_response(html,&state.auth,&user))
 }

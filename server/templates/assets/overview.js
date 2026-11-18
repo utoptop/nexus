@@ -11,6 +11,7 @@
         document.getElementById('visitor-opacity-value').textContent=Math.round(opacity.value*100)+'%';
         localStorage.setItem('visitorOpacity',opacity.value);window.TrajectoryPool?.wake();
     }
+    VisitorFilter.sync();
     setVisitorOpacity(localStorage.getItem('visitorOpacity')??1);opacity.addEventListener('input',()=>setVisitorOpacity(opacity.value));
     document.getElementById('settings-backdrop').addEventListener('click',closeSettings);
     document.addEventListener('keydown',e=>{
@@ -31,7 +32,7 @@ window.TrafficGlobe=(() => {
     const plus=document.getElementById('globe-zoom-in'),minus=document.getElementById('globe-zoom-out');
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     const MAX_ROUTES=lowMemory?180:480,MAX_LIGHTS=renderLimits.particles+256,STEPS=32,STRIDE=8;
-    const pointers=new Map(),placeholder=document.createComment('globe overview position'),fullscreenPlaceholder=document.createComment('global fullscreen position');
+    const pointers=new Map(),placeholder=document.createComment('globe overview position'),fullscreenPlaceholder=document.createComment('global fullscreen position'),playbackPlaceholder=document.createComment('playback controls position');
     let expanded=false,zoom=1,inertElements=[],savedScroll=0,lastInput=-10000,canvasDpr=0;
     let fallbackSurface=null,engine=null,raf=0,last=0,lastSample=-1000,frames=0,active=false,intersects=false,rotating=!reduced,yaw=-1.6,pitch=.2;
     let snapshot=[],lights=[],frameCost=0,slowFrames=0,quality=1,lastQualityChange=0,fpsTarget=30,lastRevision=-1,lastLabels=-1000,lastData=-1000;
@@ -54,15 +55,21 @@ window.TrafficGlobe=(() => {
     const nodeRail=document.createElement('div');nodeRail.className='globe-node-rail';nodeRail.hidden=true;nodeRail.setAttribute('aria-label',isZh?'其他节点':'Other nodes');card.insertBefore(nodeRail,card.querySelector('.globe-footer'));
     const globeMask=new TrafficRuntime.RectMask();let lastMask=-1000;
     const nodeLabels=new Map(),visitorLabels=new Map();let labelWidth=0,labelHeight=0,lastLabelFrame=-1000;
-    const dataButton=document.createElement('button');dataButton.id='globe-data-toggle';dataButton.type='button';dataButton.hidden=true;dataButton.textContent=isZh?'◫ 数据':'◫ Data';dataButton.setAttribute('aria-controls','globe-data-panel');dataButton.setAttribute('aria-expanded','true');card.querySelector('.globe-view-controls').prepend(dataButton);
+    const dataButton=document.createElement('button');dataButton.id='globe-data-toggle';dataButton.type='button';dataButton.hidden=true;dataButton.textContent=isZh?'◫ 数据 · 访客':'◫ Data';dataButton.setAttribute('aria-controls','globe-data-panel');dataButton.setAttribute('aria-expanded','true');card.querySelector('.globe-view-controls').prepend(dataButton);
     const dataPanel=document.createElement('aside');dataPanel.id='globe-data-panel';dataPanel.className='globe-data-panel';dataPanel.hidden=true;dataPanel.setAttribute('aria-label',isZh?'实时流量数据':'Live traffic data');
-    dataPanel.innerHTML=`<nav class="globe-data-tabs" role="tablist"><button type="button" id="globe-tab-traffic" role="tab" aria-selected="true" aria-controls="globe-pane-traffic">${isZh?'实时流量':'Traffic'}</button><button type="button" id="globe-tab-nodes" role="tab" aria-selected="false" aria-controls="globe-pane-nodes" tabindex="-1">${isZh?'节点热度':'Nodes'}</button><span class="globe-data-mode">LIVE</span></nav>
+    dataPanel.innerHTML=`<nav class="globe-data-tabs" role="tablist"><button type="button" id="globe-tab-traffic" role="tab" aria-selected="true" aria-controls="globe-pane-traffic">${isZh?'实时流量':'Traffic'}</button><button type="button" id="globe-tab-nodes" role="tab" aria-selected="false" aria-controls="globe-pane-nodes" tabindex="-1">${isZh?'节点热度':'Nodes'}</button><button type="button" id="globe-tab-visitors" role="tab" aria-selected="false" aria-controls="globe-pane-visitors" tabindex="-1">${isZh?'访客':'Visitors'}</button><span class="globe-data-mode">LIVE</span></nav>
+        <div class="globe-replay-tools"><select id="globe-replay-range" aria-label="${isZh?'回放时间范围':'Replay time range'}"><option value="0">${isZh?'最近 10 分钟':'Last 10 minutes'}</option><option value="0.0417">${isZh?'最近 1 小时':'Last hour'}</option><option value="1" selected>${isZh?'最近 24 小时':'Last 24 hours'}</option><option value="7">${isZh?'最近 7 天':'Last 7 days'}</option><option value="30">${isZh?'最近 30 天':'Last 30 days'}</option></select><button id="globe-replay-start" type="button" class="main-play-btn">${isZh?'▶ 轨迹回放':'▶ Replay'}</button></div>
         <section id="globe-pane-traffic" role="tabpanel" aria-labelledby="globe-tab-traffic"><div class="globe-metrics">
         <div><span>${isZh?'访问 / 秒':'Visits / s'}</span><strong data-metric="rate">0</strong><small>${isZh?'近 5 秒均值':'5-second average'}</small></div>
         <div><span>${isZh?'累计访问':'Total visits'}</span><strong data-metric="total">0</strong><small>${isZh?'当前数据范围':'Current data range'}</small></div>
         <div><span>${isZh?'位置亮点':'Location lights'}</span><strong data-metric="origins">0</strong></div><div><span>${isZh?'活跃节点':'Active nodes'}</span><strong data-metric="nodes">0</strong></div></div>
         <div class="globe-trend"><span>${isZh?'最近 60 秒':'Last 60 seconds'}</span><svg viewBox="0 0 200 38" role="img" aria-label="${isZh?'访问频率趋势':'Visit frequency trend'}"><path class="globe-trend-grid" d="M0 37H200 M0 19H200"/><path class="globe-trend-line"/></svg></div></section>
-        <section id="globe-pane-nodes" role="tabpanel" aria-labelledby="globe-tab-nodes" hidden><div class="globe-hot-nodes"></div><small class="globe-node-note">${isZh?'光条表示近期访问热度':'Bars show recent visit activity'}</small></section>`;
+        <section id="globe-pane-nodes" role="tabpanel" aria-labelledby="globe-tab-nodes" hidden><div class="globe-hot-nodes"></div><small class="globe-node-note">${isZh?'光条表示近期访问热度':'Bars show recent visit activity'}</small></section>
+        <section id="globe-pane-visitors" role="tabpanel" aria-labelledby="globe-tab-visitors" hidden>
+            <label class="nexus-filter-option"><input id="globe-hide-nexus" type="checkbox" data-hide-nexus><span>${isZh?'隐藏 Nexus 域名访问':'Hide visits to Nexus'}</span></label>
+            <div id="globe-visitor-list" tabindex="0" aria-label="${isZh?'访客详情，滚动查看更多':'Visitor details, scroll for more'}"><div class="globe-visitor-space"></div><div class="globe-visitor-content"></div></div>
+            <small id="globe-visitor-count"></small>
+        </section>`;
     card.appendChild(dataPanel);
     const metricEls=Object.fromEntries(Array.from(dataPanel.querySelectorAll('[data-metric]'),el=>[el.dataset.metric,el])),trendLine=dataPanel.querySelector('.globe-trend-line'),dataMode=dataPanel.querySelector('.globe-data-mode');
     const hotRows=Array.from({length:5},()=>{const el=document.createElement('div');el.className='globe-hot-node';el.innerHTML='<span></span><b></b><i></i>';dataPanel.querySelector('.globe-hot-nodes').appendChild(el);return {el,name:el.querySelector('span'),count:el.querySelector('b'),bar:el.querySelector('i')};});
@@ -74,11 +81,48 @@ window.TrafficGlobe=(() => {
     }
     new ResizeObserver(dataBounds).observe(dataPanel);
     dataButton.addEventListener('click',()=>{dataVisible=!dataVisible;dataPanel.hidden=!dataVisible;dataButton.setAttribute('aria-expanded',String(dataVisible));lastData=-1000;dataBounds();});
+    // One virtual list shared by live and replay data. Preserve a scrolled row as new visits arrive.
+    const visitorList=dataPanel.querySelector('#globe-visitor-list'),visitorSpace=dataPanel.querySelector('.globe-visitor-space'),visitorContent=dataPanel.querySelector('.globe-visitor-content'),visitorCount=dataPanel.querySelector('#globe-visitor-count');
+    const VISITOR_ROW=88;let visitorRows=[],visitorRevision=-1,visitorFrame=0;
+    function renderVisitors(){
+        if(!expanded||dataPanel.hidden||document.getElementById('globe-pane-visitors').hidden)return;
+        if(visitorRevision!==overviewRevision){
+            const top=visitorList.scrollTop,anchor=top>0?visitorRows[Math.floor(top/VISITOR_ROW)]:null;
+            visitorRows=Array.from(statsMap.values()).filter(s=>VisitorFilter.accepts(s[8])).sort((a,b)=>TrafficRuntime.timestamp(b[3])-TrafficRuntime.timestamp(a[3]));
+            visitorRevision=overviewRevision;visitorSpace.style.height=visitorRows.length*VISITOR_ROW+'px';
+            if(anchor){const at=visitorRows.findIndex(s=>statKey(s)===statKey(anchor));if(at>=0)visitorList.scrollTop=at*VISITOR_ROW+top%VISITOR_ROW;}
+            visitorCount.textContent=(isZh?'最近访客条目 · ':'Recent entries · ')+visitorRows.length.toLocaleString();
+        }
+        const start=Math.max(0,Math.floor(visitorList.scrollTop/VISITOR_ROW)-1),end=Math.min(visitorRows.length,Math.ceil((visitorList.scrollTop+visitorList.clientHeight)/VISITOR_ROW)+1);
+        let html='';
+        for(let i=start;i<end;i++){
+            const s=visitorRows[i],time=new Date(TrafficRuntime.timestamp(s[3])).toLocaleString();
+            html+=`<button type="button" class="globe-visitor-row" data-index="${i}" style="top:${i*VISITOR_ROW}px" aria-label="${escHtml(s[0]+' · '+s[7])}"><span class="globe-visitor-ip">${escHtml(s[0])}</span><b>×${Number(s[2]).toLocaleString()}</b><span class="globe-visitor-destination" title="${escHtml(s[8]||'-')}">${escHtml(s[8]||'-')}</span><span class="globe-visitor-location" title="${escHtml(s[1]+' → '+s[7])}">${escHtml(s[1])} → ${escHtml(s[7])}</span><time>${escHtml(time)}</time></button>`;
+        }
+        if(!visitorRows.length)html=`<p class="globe-visitors-empty">${isZh?'当前范围暂无访客':'No visitors in this range'}</p>`;
+        if(visitorContent._html!==html){visitorContent.innerHTML=html;visitorContent._html=html;}
+    }
+    visitorList.addEventListener('scroll',()=>{if(!visitorFrame)visitorFrame=requestAnimationFrame(()=>{visitorFrame=0;renderVisitors();});},{passive:true});
+    new ResizeObserver(renderVisitors).observe(visitorList);
+    visitorContent.addEventListener('click',event=>{
+        const row=event.target.closest('[data-index]'),s=row&&visitorRows[Number(row.dataset.index)];if(!s)return;
+        const pos=fixZeroPos(s[5],s[6]);yaw=-pos[1]*Math.PI/180;pitch=Math.max(-1.2,Math.min(1.2,pos[0]*Math.PI/180));setZoom(1.25);rotating=false;rotationLabel();
+    });
+    const replayRange=document.getElementById('globe-replay-range');
+    replayRange.value=document.getElementById('time-sel').value;
+    replayRange.addEventListener('change',()=>{document.getElementById('time-sel').value=replayRange.value;if(pbState.active||pbState.loading)startPlayback(true);});
+    document.getElementById('time-sel').addEventListener('change',()=>{replayRange.value=document.getElementById('time-sel').value;});
+    document.getElementById('globe-replay-start').addEventListener('click',()=>startPlayback());
+    document.getElementById('globe-hide-nexus').addEventListener('change',e=>VisitorFilter.set(e.target.checked));
+    VisitorFilter.sync();
+
     const tabs=Array.from(dataPanel.querySelectorAll('[role="tab"]'));
-    function selectTab(index){tabs.forEach((tab,i)=>{tab.setAttribute('aria-selected',String(i===index));tab.tabIndex=i===index?0:-1;document.getElementById(tab.getAttribute('aria-controls')).hidden=i!==index;});dataBounds();}
-    tabs.forEach((tab,i)=>{tab.addEventListener('click',()=>selectTab(i));tab.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?1:1-i;selectTab(next);tabs[next].focus();});});
+    function selectTab(index){tabs.forEach((tab,i)=>{tab.setAttribute('aria-selected',String(i===index));tab.tabIndex=i===index?0:-1;document.getElementById(tab.getAttribute('aria-controls')).hidden=i!==index;});dataBounds();renderVisitors();}
+    tabs.forEach((tab,i)=>{tab.addEventListener('click',()=>selectTab(i));tab.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;selectTab(next);tabs[next].focus();});});
+    selectTab(2);
     function updateData(now){
         if(!expanded||dataPanel.hidden)return;
+        renderVisitors();
         const meter=TrajectoryPool.trafficMetrics(),nodes=lights.filter(l=>l.node),total=Object.values(nodeHits).reduce((s,n)=>s+n,0);
         liveMetrics={rate:meter.rate,total,origins:lights.length-nodes.length,nodes:nodes.filter(l=>now-l.at<5000&&l.energy>.03).length};
         for(const [key,el] of Object.entries(metricEls)){const value=liveMetrics[key],text=value.toLocaleString(undefined,{maximumFractionDigits:key==='rate'?1:0});if(el.textContent!==text)el.textContent=text;el.dataset.value=String(value);el.title=text;el.style.fontSize=Math.max(isMobile?10:12,(isMobile?17:22)*Math.min(1,8/text.length))+'px';}
@@ -124,7 +168,7 @@ window.TrafficGlobe=(() => {
     function layoutLabels(now){
         const interval=pointers.size?1000/30:1000/20;if(now-lastLabelFrame<interval)return;lastLabelFrame=now;
         const w=labelWidth,h=labelHeight,bw=expanded?(isMobile?118:138):114,bh=expanded?46:42,gap=10,placed=[];
-        const top=expanded?(isMobile?112:80):48,bottom=h-(expanded?96:12),left=12,right=w-(expanded?64:44);
+        const top=expanded?(isMobile?112:80):48,bottom=h-(expanded?(pbState.active?180:96):12),left=12,right=w-(expanded?64:44);
         if(hudRect)placed.push(hudRect);
         if(expanded&&!nodeRail.hidden){const y=isMobile?h-170:hudRect?hudRect.y+hudRect.h+12:95,x=isMobile?(w>h?240:12):16;placed.push({x,y,w:isMobile?w-x-12:162,h:isMobile?66:Math.min(350,h-y-85,nodeRail.children.length*56+20)});}
         const overlap=(a,b)=>a.x<b.x+b.w+gap&&a.x+a.w+gap>b.x&&a.y<b.y+b.h+gap&&a.y+a.h+gap>b.y;
@@ -399,7 +443,7 @@ window.TrafficGlobe=(() => {
         const w=Math.max(1,Math.floor(r.width*dpr)),h=Math.max(1,Math.floor(r.height*dpr));
         if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
         if(fallbackSurface){fallbackSurface.width=w;fallbackSurface.height=h;fallbackSurface.style.height=r.height+'px';}
-        dataBounds();
+        dataBounds();renderVisitors();
     }
     function sample(now){
         snapshot=window.TrajectoryPool?.snapshotTraffic(expanded?MAX_ROUTES:lowMemory?80:120)||[];
@@ -441,11 +485,12 @@ window.TrafficGlobe=(() => {
         if(expanded===value)return;expanded=value;quality=1;slowFrames=0;pointers.clear();
         if(value){
             savedScroll=document.getElementById('cyber-dashboard').scrollTop;card.before(placeholder);document.body.appendChild(card);const fullscreen=document.getElementById('immersive-toggle');fullscreen.before(fullscreenPlaceholder);card.appendChild(fullscreen);
+            const playback=document.getElementById('playback-ctrl');playback.before(playbackPlaceholder);card.appendChild(playback);
             inertElements=Array.from(document.body.children).filter(el=>el!==card&&el.id!=='immersive-toggle'&&!['SCRIPT','STYLE'].includes(el.tagName)).map(el=>[el,el.inert]);
             for(const [el] of inertElements)el.inert=true;
             card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label',isZh?'全屏流量地球':'Fullscreen traffic globe');
         }else{
-            fullscreenPlaceholder.replaceWith(document.getElementById('immersive-toggle'));placeholder.replaceWith(card);for(const [el,wasInert] of inertElements)el.inert=wasInert;inertElements=[];
+            fullscreenPlaceholder.replaceWith(document.getElementById('immersive-toggle'));playbackPlaceholder.replaceWith(document.getElementById('playback-ctrl'));placeholder.replaceWith(card);for(const [el,wasInert] of inertElements)el.inert=wasInert;inertElements=[];
             card.removeAttribute('role');card.removeAttribute('aria-modal');card.removeAttribute('aria-label');document.getElementById('cyber-dashboard').scrollTop=savedScroll;
         }
         card.classList.toggle('globe-expanded',value);document.body.classList.toggle('globe-fullscreen',value);
@@ -480,7 +525,7 @@ window.TrafficGlobe=(() => {
         if(!expanded)return;
         if(e.key==='Escape'){e.preventDefault();setExpanded(false);return;}
         if(e.key==='Tab'){
-            const items=Array.from(card.querySelectorAll('button,canvas[tabindex]')).filter(el=>!el.hidden&&!el.disabled&&el.tabIndex>=0&&el.getClientRects().length),first=items[0],last=items.at(-1);
+            const items=Array.from(card.querySelectorAll('button,input,select,[tabindex]')).filter(el=>!el.hidden&&!el.disabled&&el.tabIndex>=0&&el.getClientRects().length),first=items[0],last=items.at(-1);
             if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
         }
     });
@@ -488,7 +533,7 @@ window.TrafficGlobe=(() => {
     rotateButton.addEventListener('click',()=>{rotating=!rotating;rotationLabel();});rotationLabel();
     canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();cancelAnimationFrame(raf);raf=0;engine=createFallback();resize();sync();});
     canvas.addEventListener('webglcontextrestored',()=>{fallbackSurface?.remove();fallbackSurface=null;engine=null;sync();});
-    return {setExpanded,returnMap,inspectLabels:()=>Array.from(nodeLabels,([node,e])=>({node,hits:e.light.hits,floating:e.floating,position:projectPoint(e.light.pos)})),inspect:()=>({engine:engine?.name||'idle',active,expanded,zoom,frames,frameCost,fpsTarget,quality,rotating,yaw,pitch,routes:snapshot.length,routeLimit:expanded?MAX_ROUTES:lowMemory?80:120,lights:lights.length,lightLimit:MAX_LIGHTS,borderVertices:engine?.borderVertices||0,sphereVertices:engine?.sphereVertices||0,textureSize:engine?.textureSize||[0,0],bufferBytes:engine?.bytes||0,pixelBudget:pixelBudget(),pixelRatio:engine&&canvas.clientWidth?canvas.width/canvas.clientWidth:0,pixels:engine?canvas.width*canvas.height:0,revision:lastRevision,hudUpdates,metrics:liveMetrics}),inspectOverlap:pos=>{const p=projectPoint(pos);return globeMask.opacity(p.x,p.y,8);},inspectLight:nodeOrPos=>lights.find(l=>l.node===nodeOrPos||Array.isArray(nodeOrPos)&&l.pos.join(',')===nodeOrPos.join(',')),arc};
+    return {setExpanded,returnMap,refreshDetails(){visitorRevision=-1;lastData=-1000;lastSample=-1000;renderVisitors();},inspectLabels:()=>Array.from(nodeLabels,([node,e])=>({node,hits:e.light.hits,floating:e.floating,position:projectPoint(e.light.pos)})),inspect:()=>({engine:engine?.name||'idle',active,expanded,zoom,frames,frameCost,fpsTarget,quality,rotating,yaw,pitch,routes:snapshot.length,routeLimit:expanded?MAX_ROUTES:lowMemory?80:120,lights:lights.length,lightLimit:MAX_LIGHTS,borderVertices:engine?.borderVertices||0,sphereVertices:engine?.sphereVertices||0,textureSize:engine?.textureSize||[0,0],bufferBytes:engine?.bytes||0,pixelBudget:pixelBudget(),pixelRatio:engine&&canvas.clientWidth?canvas.width/canvas.clientWidth:0,pixels:engine?canvas.width*canvas.height:0,revision:lastRevision,hudUpdates,metrics:liveMetrics}),inspectOverlap:pos=>{const p=projectPoint(pos);return globeMask.opacity(p.x,p.y,8);},inspectLight:nodeOrPos=>lights.find(l=>l.node===nodeOrPos||Array.isArray(nodeOrPos)&&l.pos.join(',')===nodeOrPos.join(',')),arc};
 })();
 
 // Bounded overview aggregation; chart construction and refresh happen only while visible.

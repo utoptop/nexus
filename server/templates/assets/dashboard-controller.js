@@ -1,3 +1,22 @@
+// Hide only this Nexus deployment's hosts, never similarly named business domains.
+window.VisitorFilter=(()=>{
+    const host=value=>{try{const text=String(value||'').trim(),u=new URL(text.includes('://')?text:'http://'+text);return /^https?:$/.test(u.protocol)&&!u.username&&!u.password?u.hostname.toLowerCase().replace(/\.$/,''):'';}catch{return '';}};
+    const domains=new Set([...nexusDomains,location.hostname].map(host).filter(Boolean));
+    let enabled=localStorage.getItem('hideNexusVisitors')==='true';
+    const accepts=domain=>!enabled||!domains.has(host(domain));
+    function sync(){document.querySelectorAll('[data-hide-nexus]').forEach(el=>{el.checked=enabled;el.title=[...domains].join(', ');});}
+    function set(value){
+        enabled=Boolean(value);localStorage.setItem('hideNexusVisitors',String(enabled));sync();
+        // Remove existing activity immediately while the matching aggregate is fetched.
+        currentStats=Array.from(statsMap.values()).filter(s=>accepts(s[8]));rebuildStatsMap();
+        globalHistory=globalHistory.filter(h=>accepts(h[6]));calculateNodeHits();resetHeat();clearActiveLines();seedHistoricalRoutes();
+        window.TrafficGlobe?.refreshDetails();
+        renderTable();refreshNodeLayout();scheduleUiUpdate();
+        return applyFilters(true);
+    }
+    return {accepts,set,sync,get enabled(){return enabled;},query:()=>enabled?'&hide_nexus=true&nexus_host='+encodeURIComponent(location.hostname):'',domains:[...domains]};
+})();
+
 const lowMemory = isMobile || (navigator.deviceMemory && navigator.deviceMemory <= 4);
 const renderLimits = { particles: lowMemory ? 8000 : 24000, routes: lowMemory ? 180 : 480, history: lowMemory ? 600 : 1600, pings: lowMemory ? 24 : 64, sources: lowMemory ? 400 : 1200, dpr: (navigator.deviceMemory && navigator.deviceMemory <= 2) ? 1 : 1.5, pixelBudget: lowMemory ? 1500000 : 3000000, markers: lowMemory ? 350 : 1200, stats: lowMemory ? 2000 : 6000 };
 const liveQueue = new TrafficRuntime.EventQueue(lowMemory ? 1024 : 4096, { onReady: scheduleLiveDrain, maxPending: lowMemory ? 200000 : 1000000 });
@@ -39,6 +58,7 @@ function retainMarker(key, marker) {
     cluster.removeLayer(stale); stale.unbindTooltip(); stale.unbindPopup();
 }
 function ingestVisitor(data, visual = true) {
+    if (!VisitorFilter.accepts(data.target_domain)) return;
     const node = canonicalNode(data.server_name), count = Number(data.count) || 1;
     const row = [data.ip, data.location, count, data.time, data.lang, data.lat, data.lon, node, data.target_domain];
     const key = statKey(row), old = statsMap.get(key);
@@ -62,7 +82,7 @@ function ingestVisitor(data, visual = true) {
 }
 function drainLiveQueue() {
     liveFrame = 0;
-    if (document.hidden || pbState.active) return;
+    if (document.hidden || pbState.active || pbState.loading) return;
     const deadline = performance.now() + 4;
     let consumed = 0;
     while (liveQueue.readySize && window.TrajectoryPool.availableSlots() && performance.now() < deadline && consumed < 500) {
@@ -72,10 +92,11 @@ function drainLiveQueue() {
     scheduleLiveDrain();
 }
 function scheduleLiveDrain() {
-    if (!liveFrame && !document.hidden && !pbState.active && liveQueue.readySize && window.TrajectoryPool?.availableSlots()) liveFrame = requestAnimationFrame(drainLiveQueue);
+    if (!liveFrame && !document.hidden && !pbState.active && !pbState.loading && liveQueue.readySize && window.TrajectoryPool?.availableSlots()) liveFrame = requestAnimationFrame(drainLiveQueue);
     scheduleUiUpdate();
 }
 function queueLiveEvent(event) {
+    if (!VisitorFilter.accepts(event.target_domain)) return;
     if (!liveQueue.push(event)) streamGap = true;
     scheduleLiveDrain();
 }
@@ -112,6 +133,8 @@ function resetPlaybackData() {
     Object.keys(nodeMarkers).forEach(name => dirtyNodes.add(name));
     vsData = []; tableDirty = true; pbState.index = 0; pbState.lastTime = performance.now();
     if (fogLayer) fogLayer.setLatLngs([]);
+    document.getElementById('pb-slider').value=0;updatePlaybackPosition();
+    window.TrafficGlobe?.refreshDetails();
     scheduleUiUpdate();
 }
 function updatePlaybackPosition() {

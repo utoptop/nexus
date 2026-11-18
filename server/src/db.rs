@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use crate::models::{StatsRow, HistoryRow, HeatmapRow};
 use crate::error::AppError;
 
-pub async fn fetch_dashboard_data(db: &PgPool, nodes_param: &str, days: f64) -> Result<(Vec<StatsRow>, Vec<HistoryRow>, Vec<HeatmapRow>), AppError> {
+pub async fn fetch_dashboard_data(db: &PgPool, nodes_param: &str, days: f64, hidden_domains: &str) -> Result<(Vec<StatsRow>, Vec<HistoryRow>, Vec<HeatmapRow>), AppError> {
     // Dashboard aggregations share one bounded transaction. Disable parallel DSM
     // allocations here without changing the ingestion pool's session settings.
     let mut query_tx = db.begin().await?;
@@ -24,11 +24,11 @@ pub async fn fetch_dashboard_data(db: &PgPool, nodes_param: &str, days: f64) -> 
         JOIN ip_dimensions d ON vl.ip_id = d.id
         LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name
         WHERE ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) 
-        AND vl.visit_time >= $3 
+        AND vl.visit_time >= $3 AND ($4 = '' OR btrim(COALESCE(vl.target_domain, '')) !~* $4)
         GROUP BY d.ip_address, final_server_name, vl.target_domain, d.location, vl.language, d.lat, d.lon 
         ORDER BY MAX(vl.visit_time) DESC LIMIT 200
         "#
-    ).bind(is_all).bind(&nodes).bind(cutoff).fetch_all(&mut *query_tx).await?;
+    ).bind(is_all).bind(&nodes).bind(cutoff).bind(hidden_domains).fetch_all(&mut *query_tx).await?;
 
     let history: Vec<HistoryRow> = sqlx::query_as(
         r#"
@@ -39,19 +39,19 @@ pub async fn fetch_dashboard_data(db: &PgPool, nodes_param: &str, days: f64) -> 
         LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name
         WHERE d.lat IS NOT NULL 
         AND ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) 
-        AND vl.visit_time >= $3 
+        AND vl.visit_time >= $3 AND ($4 = '' OR btrim(COALESCE(vl.target_domain, '')) !~* $4)
         ORDER BY vl.visit_time DESC LIMIT 2000
         "#
-    ).bind(is_all).bind(&nodes).bind(cutoff).fetch_all(&mut *query_tx).await?;
+    ).bind(is_all).bind(&nodes).bind(cutoff).bind(hidden_domains).fetch_all(&mut *query_tx).await?;
 
     let hm_query = if days <= 0.05 {
-        "WITH resolved_nodes AS (SELECT node_ip, COALESCE(NULLIF(TRIM(custom_name), ''), node_ip) as display_name FROM api_nodes) SELECT CAST(date_trunc('minute', vl.visit_time) AS TEXT) as ts, COUNT(*) as c FROM visitor_logs vl LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name WHERE ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) AND vl.visit_time >= $3 GROUP BY date_trunc('minute', vl.visit_time) ORDER BY date_trunc('minute', vl.visit_time) ASC"
+        "WITH resolved_nodes AS (SELECT node_ip, COALESCE(NULLIF(TRIM(custom_name), ''), node_ip) as display_name FROM api_nodes) SELECT CAST(date_trunc('minute', vl.visit_time) AS TEXT) as ts, COUNT(*) as c FROM visitor_logs vl LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name WHERE ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) AND vl.visit_time >= $3 AND ($4 = '' OR btrim(COALESCE(vl.target_domain, '')) !~* $4) GROUP BY date_trunc('minute', vl.visit_time) ORDER BY date_trunc('minute', vl.visit_time) ASC"
     } else if days <= 1.0 {
-        "WITH resolved_nodes AS (SELECT node_ip, COALESCE(NULLIF(TRIM(custom_name), ''), node_ip) as display_name FROM api_nodes) SELECT CAST(date_trunc('hour', vl.visit_time) AS TEXT) as ts, COUNT(*) as c FROM visitor_logs vl LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name WHERE ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) AND vl.visit_time >= $3 GROUP BY date_trunc('hour', vl.visit_time) ORDER BY date_trunc('hour', vl.visit_time) ASC"
+        "WITH resolved_nodes AS (SELECT node_ip, COALESCE(NULLIF(TRIM(custom_name), ''), node_ip) as display_name FROM api_nodes) SELECT CAST(date_trunc('hour', vl.visit_time) AS TEXT) as ts, COUNT(*) as c FROM visitor_logs vl LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name WHERE ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) AND vl.visit_time >= $3 AND ($4 = '' OR btrim(COALESCE(vl.target_domain, '')) !~* $4) GROUP BY date_trunc('hour', vl.visit_time) ORDER BY date_trunc('hour', vl.visit_time) ASC"
     } else {
-        "WITH resolved_nodes AS (SELECT node_ip, COALESCE(NULLIF(TRIM(custom_name), ''), node_ip) as display_name FROM api_nodes) SELECT CAST(date_trunc('day', vl.visit_time) AS TEXT) as ts, COUNT(*) as c FROM visitor_logs vl LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name WHERE ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) AND vl.visit_time >= $3 GROUP BY date_trunc('day', vl.visit_time) ORDER BY date_trunc('day', vl.visit_time) ASC"
+        "WITH resolved_nodes AS (SELECT node_ip, COALESCE(NULLIF(TRIM(custom_name), ''), node_ip) as display_name FROM api_nodes) SELECT CAST(date_trunc('day', vl.visit_time) AS TEXT) as ts, COUNT(*) as c FROM visitor_logs vl LEFT JOIN resolved_nodes rn ON vl.server_name = rn.node_ip OR vl.server_name = rn.display_name WHERE ($1 = TRUE OR COALESCE(rn.display_name, vl.server_name) = ANY($2)) AND vl.visit_time >= $3 AND ($4 = '' OR btrim(COALESCE(vl.target_domain, '')) !~* $4) GROUP BY date_trunc('day', vl.visit_time) ORDER BY date_trunc('day', vl.visit_time) ASC"
     };
-    let heatmap: Vec<HeatmapRow> = sqlx::query_as(hm_query).bind(is_all).bind(&nodes).bind(cutoff).fetch_all(&mut *query_tx).await?;
+    let heatmap: Vec<HeatmapRow> = sqlx::query_as(hm_query).bind(is_all).bind(&nodes).bind(cutoff).bind(hidden_domains).fetch_all(&mut *query_tx).await?;
 
     query_tx.commit().await?;
     Ok((stats, history, heatmap))
@@ -93,12 +93,12 @@ mod database_tests {
             SET max_parallel_workers_per_gather = 2;
             SET work_mem = '8MB';
         "#).execute(&pool).await.unwrap();
-        let (stats, history, heat) = fetch_dashboard_data(&pool, "All", 1.0).await.unwrap();
+        let (stats, history, heat) = fetch_dashboard_data(&pool, "All", 1.0, "").await.unwrap();
         assert_eq!(stats.len(), 2);
         assert!(stats.iter().any(|row| row.7 == "Tokyo Edge" && row.2 == 2));
         assert_eq!(history.len(), 3);
         assert_eq!(heat.iter().map(|row| row.1).sum::<i64>(), 3);
-        let (filtered, _, _) = fetch_dashboard_data(&pool, "Tokyo Edge", 1.0).await.unwrap();
+        let (filtered, _, _) = fetch_dashboard_data(&pool, "Tokyo Edge", 1.0, "").await.unwrap();
         assert_eq!(filtered.len(), 1);
         let parallel: String = sqlx::query_scalar("SHOW max_parallel_workers_per_gather").fetch_one(&pool).await.unwrap();
         let memory: String = sqlx::query_scalar("SHOW work_mem").fetch_one(&pool).await.unwrap();

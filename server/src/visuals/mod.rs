@@ -90,6 +90,7 @@ struct AdminTemplate<'a> {
     // 🗺️ 地图底图配置 (CARTO Basemap Key / 自定义瓦片 URL)
     map_api_key: String,
     map_tile_url: String,
+    nexus_domains_json: String,
 
     lat: f64, lon: f64, city: &'a str, dyn_bright: f64, res_bright: f64,
     res_time: f64, anim_speed: f64, init_speed: f64, init_thick: f64,
@@ -123,6 +124,7 @@ pub fn generate_admin_ui(
     node_quota_json: String, // 🚀 新增参数
     map_api_key: String,
     map_tile_url: String,
+    nexus_domains: Vec<String>,
 ) -> String {
     let t_title = if is_zh { "NEXUS · 实时节点监测" } else { "NEXUS · Live Node Monitor" };
     let t_freq = if is_zh { "🔥 高频服务" } else { "🔥 High Freq Services" };
@@ -233,7 +235,7 @@ pub fn generate_admin_ui(
         sel_count, stats_json: serde_json::to_string(&stats).unwrap(), history_json: serde_json::to_string(&history).unwrap(),
         hm_json: serde_json::to_string(&heatmap).unwrap(), nodes_map_json, ip_to_name_json, is_zh_bool: if is_zh { "true" } else { "false" },
         node_quota_json, // 🚀 传入 node_quota_json
-        map_api_key, map_tile_url,
+        map_api_key, map_tile_url, nexus_domains_json: serde_json::to_string(&nexus_domains).unwrap(),
         lat: server.lat, lon: server.lon, city: &server.city, dyn_bright, res_bright, res_time, anim_speed,
         init_speed, init_thick, res_thick, dash_length, dash_gap,
     }.render().unwrap();
@@ -262,7 +264,7 @@ mod tests {
             r#"{"Direct Access":[1.35,103.82],"Tokyo Edge":[35.68,139.69]}"#.into(),
             &ServerLocation { lat:1.35, lon:103.82, city:"Singapore".into() }, true,
             "历史连线: 开", "迷雾热力: 关", 4.0, 3.5, 3.0, 0.5, 0.1, 1.5, 0.5, 20.0, 60.0, "长度", "间距",
-            "{}".into(), String::new(), "https://tile.openstreetmap.org/{z}/{x}/{y}.png".into());
+            "{}".into(), String::new(), "https://tile.openstreetmap.org/{z}/{x}/{y}.png".into(), vec!["logger.example.test".into(), "proxy.example.test".into()]);
         let html = crate::account::paths_html(html, "/admin");
         assert!(html.contains("createTrajectoryLayer"));
         assert!(html.contains("NEXUS"));

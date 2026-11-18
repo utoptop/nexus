@@ -110,7 +110,7 @@ window.NodeStream = (() => {
         }catch(_){}finally{request=null;}})();return request;
     }
     function visit(data){
-        if(pbState.active)return;
+        if(pbState.active||pbState.loading||!VisitorFilter.accepts(data.target_domain))return;
         const name=canonicalNode(data.server_name);data.server_name=name;
         if(rejectedNodes.has(name))return;
         if(!trueNodesMap[name]&&name!=='Direct Access'&&name!=='-'){
