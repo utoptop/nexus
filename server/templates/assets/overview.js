@@ -32,7 +32,7 @@ window.TrafficGlobe=(() => {
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     const MAX_ROUTES=lowMemory?180:480,MAX_LIGHTS=renderLimits.particles+256,STEPS=32,STRIDE=8;
     const pointers=new Map(),placeholder=document.createComment('globe overview position'),fullscreenPlaceholder=document.createComment('global fullscreen position');
-    let expanded=false,zoom=1,inertElements=[],savedScroll=0,lastInput=-10000;
+    let expanded=false,zoom=1,inertElements=[],savedScroll=0,lastInput=-10000,canvasDpr=0;
     let fallbackSurface=null,engine=null,raf=0,last=0,lastSample=-1000,frames=0,active=false,intersects=false,rotating=!reduced,yaw=-1.6,pitch=.2;
     let snapshot=[],lights=[],frameCost=0,slowFrames=0,quality=1,lastQualityChange=0,fpsTarget=30,lastRevision=-1,lastLabels=-1000,lastData=-1000;
     const point=([lat,lon])=>{const a=lat*Math.PI/180,b=lon*Math.PI/180;return [Math.cos(a)*Math.sin(b),Math.sin(a),Math.cos(a)*Math.cos(b)];};
@@ -294,7 +294,8 @@ window.TrafficGlobe=(() => {
         gl.useProgram(program);const mainVAO=gl.createVertexArray();gl.bindVertexArray(mainVAO);
         const uniforms=Object.fromEntries(['rotation','aspect','mode','dpr','scale','time','sampledAt','earth','visitorOpacity','motion','brightness','nodeMask','maskViewport'].map(n=>[n,gl.getUniformLocation(program,n)]));
         const mesh=[];const v=(lat,lon)=>mesh.push(...point([lat,lon]),1,1,1,1,0);
-        for(let lat=-90;lat<90;lat+=4)for(let lon=-180;lon<180;lon+=4){v(lat,lon);v(lat+4,lon);v(lat,lon+4);v(lat,lon+4);v(lat+4,lon);v(lat+4,lon+4);}
+        const meshStep=lowMemory?3:2;
+        for(let lat=-90;lat<90;lat+=meshStep)for(let lon=-180;lon<180;lon+=meshStep){v(lat,lon);v(lat+meshStep,lon);v(lat,lon+meshStep);v(lat,lon+meshStep);v(lat+meshStep,lon);v(lat+meshStep,lon+meshStep);}
         const sphereCount=mesh.length/STRIDE,sphereBytes=mesh.length*4;
         function staticBuffer(values){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(values),gl.STATIC_DRAW);return b;}
         const sphere=staticBuffer(mesh);mesh.length=0;
@@ -308,9 +309,14 @@ window.TrafficGlobe=(() => {
         const lightBuffer=gl.createBuffer(),lightData=new Float32Array(MAX_LIGHTS*STRIDE);
         gl.bindBuffer(gl.ARRAY_BUFFER,lightBuffer);gl.bufferData(gl.ARRAY_BUFFER,lightData.byteLength,gl.DYNAMIC_DRAW);
         const texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,texture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-        const land=Coastline.globeTexture();gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,land);land.width=land.height=0;
-        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+        const textureWidth=Math.min(lowMemory?2048:4096,gl.getParameter(gl.MAX_TEXTURE_SIZE)),textureHeight=textureWidth/2;
+        const land=Coastline.globeTexture(textureWidth);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,land);land.width=land.height=0;
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+        let textureBytes=0;
+        for(let w=textureWidth,h=textureHeight;;w=Math.max(1,w>>1),h=Math.max(1,h>>1)){textureBytes+=w*h*4;if(w===1&&h===1)break;}
+        const maxRenderbuffer=gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),maxCanvasSize=Array.from(gl.getParameter(gl.MAX_VIEWPORT_DIMS),v=>Math.min(v,maxRenderbuffer));
         gl.enable(gl.DEPTH_TEST);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
         const maskCanvas=document.createElement('canvas');maskCanvas.width=maskCanvas.height=256;const maskContext=maskCanvas.getContext('2d'),maskTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,maskTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,256,256,0,gl.RGBA,gl.UNSIGNED_BYTE,null);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.activeTexture(gl.TEXTURE0);
         let lightCount=0,sampledAt=0;
@@ -318,7 +324,7 @@ window.TrafficGlobe=(() => {
         function bind(buffer){gl.bindBuffer(gl.ARRAY_BUFFER,buffer);for(const [i,size,offset] of [[0,3,0],[1,4,12],[2,1,28]]){gl.enableVertexAttribArray(i);gl.vertexAttribPointer(i,size,gl.FLOAT,false,32,offset);}}
         function write(data,index,pos,color,alpha,along){let k=index*STRIDE;data[k++]=pos[0];data[k++]=pos[1];data[k++]=pos[2];data[k++]=color[0];data[k++]=color[1];data[k++]=color[2];data[k++]=alpha;data[k]=along;}
         return {
-            name:'WebGL2',borderVertices:borderCount,bytes:routeGPU.bytes+2*lightData.byteLength+sphereBytes+borderBytes+1024*512*4+256*256*4,
+            name:'WebGL2',borderVertices:borderCount,sphereVertices:sphereCount,textureSize:[textureWidth,textureHeight],maxCanvasSize,bytes:routeGPU.bytes+2*lightData.byteLength+sphereBytes+borderBytes+textureBytes+256*256*4,
             updateMask(rects,w,h){maskContext.clearRect(0,0,256,256);maskContext.fillStyle='#fff';for(const r of rects)maskContext.fillRect(r.x*256/w,r.y*256/h,r.w*256/w,r.h*256/h);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,maskTexture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,maskCanvas);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.activeTexture(gl.TEXTURE0);},
             update(routes,points,now){
                 sampledAt=now/1000;lightCount=0;routeGPU.update(routes,now);
@@ -379,10 +385,16 @@ window.TrafficGlobe=(() => {
         }};
     }
     function ensure(){if(engine)return;try{engine=createGPU();}catch(error){console.warn('Globe GPU unavailable',error);}if(!engine)engine=createFallback();resize();}
+    function pixelBudget(){
+        // Fullscreen WebGL retains native 4K pixels; software rendering stays bounded.
+        if(engine?.name==='Canvas')return (expanded?(lowMemory?1200000:1800000):500000)*quality;
+        return (expanded?(lowMemory?2000000:8294400):(lowMemory?1000000:2073600))*quality;
+    }
     function resize(){
         if(!engine)return;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;
-        const budget=(expanded?(lowMemory?1200000:1800000):500000)*quality;
-        const dpr=Math.min(devicePixelRatio||1,1.5,Math.sqrt(budget/(r.width*r.height)));
+        const [maxWidth,maxHeight]=engine.maxCanvasSize||[8192,8192];
+        canvasDpr=devicePixelRatio||1;
+        const dpr=Math.min(canvasDpr,engine.name==='Canvas'?1.5:2,Math.sqrt(pixelBudget()/(r.width*r.height)),maxWidth/r.width,maxHeight/r.height);
         labelWidth=r.width;labelHeight=r.height;labelLayer.style.height=r.height+'px';leaderSvg.setAttribute('viewBox',`0 0 ${r.width} ${r.height}`);lastLabelFrame=-1000;
         const w=Math.max(1,Math.floor(r.width*dpr)),h=Math.max(1,Math.floor(r.height*dpr));
         if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
@@ -400,6 +412,8 @@ window.TrafficGlobe=(() => {
     }
     function frame(now){
         raf=0;if(!active)return;
+        // Browser zoom or moving monitors can change DPR without resizing the element.
+        if(canvasDpr!==(devicePixelRatio||1))resize();
         fpsTarget=reduced?10:engine.name==='Canvas'?20:expanded&&!lowMemory&&quality===1?60:30;
         if(now-last<1000/fpsTarget-.5){raf=requestAnimationFrame(frame);return;}
         const delta=last?now-last:1000/fpsTarget,start=performance.now();
@@ -474,7 +488,7 @@ window.TrafficGlobe=(() => {
     rotateButton.addEventListener('click',()=>{rotating=!rotating;rotationLabel();});rotationLabel();
     canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();cancelAnimationFrame(raf);raf=0;engine=createFallback();resize();sync();});
     canvas.addEventListener('webglcontextrestored',()=>{fallbackSurface?.remove();fallbackSurface=null;engine=null;sync();});
-    return {setExpanded,returnMap,inspectLabels:()=>Array.from(nodeLabels,([node,e])=>({node,hits:e.light.hits,floating:e.floating,position:projectPoint(e.light.pos)})),inspect:()=>({engine:engine?.name||'idle',active,expanded,zoom,frames,frameCost,fpsTarget,quality,rotating,yaw,pitch,routes:snapshot.length,routeLimit:expanded?MAX_ROUTES:lowMemory?80:120,lights:lights.length,lightLimit:MAX_LIGHTS,borderVertices:engine?.borderVertices||0,bufferBytes:engine?.bytes||0,pixels:engine?canvas.width*canvas.height:0,revision:lastRevision,hudUpdates,metrics:liveMetrics}),inspectOverlap:pos=>{const p=projectPoint(pos);return globeMask.opacity(p.x,p.y,8);},inspectLight:nodeOrPos=>lights.find(l=>l.node===nodeOrPos||Array.isArray(nodeOrPos)&&l.pos.join(',')===nodeOrPos.join(',')),arc};
+    return {setExpanded,returnMap,inspectLabels:()=>Array.from(nodeLabels,([node,e])=>({node,hits:e.light.hits,floating:e.floating,position:projectPoint(e.light.pos)})),inspect:()=>({engine:engine?.name||'idle',active,expanded,zoom,frames,frameCost,fpsTarget,quality,rotating,yaw,pitch,routes:snapshot.length,routeLimit:expanded?MAX_ROUTES:lowMemory?80:120,lights:lights.length,lightLimit:MAX_LIGHTS,borderVertices:engine?.borderVertices||0,sphereVertices:engine?.sphereVertices||0,textureSize:engine?.textureSize||[0,0],bufferBytes:engine?.bytes||0,pixelBudget:pixelBudget(),pixelRatio:engine&&canvas.clientWidth?canvas.width/canvas.clientWidth:0,pixels:engine?canvas.width*canvas.height:0,revision:lastRevision,hudUpdates,metrics:liveMetrics}),inspectOverlap:pos=>{const p=projectPoint(pos);return globeMask.opacity(p.x,p.y,8);},inspectLight:nodeOrPos=>lights.find(l=>l.node===nodeOrPos||Array.isArray(nodeOrPos)&&l.pos.join(',')===nodeOrPos.join(',')),arc};
 })();
 
 // Bounded overview aggregation; chart construction and refresh happen only while visible.

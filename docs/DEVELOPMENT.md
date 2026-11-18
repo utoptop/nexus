@@ -88,3 +88,16 @@ CHROME_PATH=/path/to/chrome node tests/config-compose-smoke.cjs
 ```
 
 该脚本复制真实 Compose/TOML 模板，创建独立项目和数据卷，不生成 `.env`，验证数据库密码文件、配置检查、登录、真实探针采集以及两个入口的动态轨迹；结束后仅清理自己的测试资源。可用 `NEXUS_IMAGE` / `AGENT_IMAGE` 指定其他配置文件版测试镜像。
+
+## 3D 地球高清渲染回归
+
+```bash
+cd server
+DASHBOARD_FIXTURE_PATH=/tmp/observatory-preview.html cargo test --locked render_dashboard_fixture
+CHROME_PATH=/path/to/chrome node tests/globe-resolution-browser.cjs
+CHROME_PATH=/path/to/chrome node tests/globe-fullscreen-browser.cjs
+```
+
+高清回归检查实际画布像素、4K/2K 地表纹理与球面网格，覆盖 Retina、原生 4K、手机、设备像素比变化、WebGL 降级/恢复和隐藏视图停止绘制。默认截图目录为 `/tmp/nexus-artifacts`；可用 `GLOBE_ARTIFACT_DIR` 改写。
+
+桌面 GPU 画布上限为全屏 8294400 / 总览 2073600 像素；手机和低内存设备为 2000000 / 1000000 像素，最高 DPR 2。实际大小还受窗口、GPU 上限和慢帧降载约束。`bufferBytes` 统计纹理（含 mipmap）及绘制缓冲，不包含浏览器管理的 framebuffer/MSAA 内存。

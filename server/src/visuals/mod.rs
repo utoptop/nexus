@@ -263,6 +263,7 @@ mod tests {
             &ServerLocation { lat:1.35, lon:103.82, city:"Singapore".into() }, true,
             "历史连线: 开", "迷雾热力: 关", 4.0, 3.5, 3.0, 0.5, 0.1, 1.5, 0.5, 20.0, 60.0, "长度", "间距",
             "{}".into(), String::new(), "https://tile.openstreetmap.org/{z}/{x}/{y}.png".into());
+        let html = crate::account::paths_html(html, "/admin");
         assert!(html.contains("createTrajectoryLayer"));
         assert!(html.contains("NEXUS"));
         assert!(!html.contains("OBSERVATORY"));

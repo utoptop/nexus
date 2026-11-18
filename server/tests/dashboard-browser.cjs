@@ -38,7 +38,7 @@ const assert = require('node:assert/strict');
     await page.waitForTimeout(1200);
     const bounds=await page.evaluate(()=>({stats:statsMap.size,markers:markerLRU.size,cluster:cluster.getLayers().length,queue:liveQueue.size,rejected:liveQueue.rejected,received:liveQueue.received,dequeued:liveQueue.dequeued,heat:heatBuckets.bins.size,...window.TrajectoryPool.inspect()}));
     console.log('BURST',bounds);
-    if(process.env.OVERVIEW_LOAD||process.env.FULLSCREEN_LOAD){const globe=await page.evaluate(()=>TrafficGlobe.inspect());console.log('CONCURRENT_GLOBE',globe);assert.ok(globe.active&&globe.frames>10);assert.ok(globe.routes<=globe.routeLimit&&globe.pixels<=(process.env.FULLSCREEN_LOAD?1800000:500000)&&globe.bufferBytes<8e6);}
+    if(process.env.OVERVIEW_LOAD||process.env.FULLSCREEN_LOAD){const globe=await page.evaluate(()=>TrafficGlobe.inspect());console.log('CONCURRENT_GLOBE',globe);assert.ok(globe.active&&globe.frames>10);assert.ok(globe.routes<=globe.routeLimit&&globe.pixels<=globe.pixelBudget&&globe.pixelBudget<=(process.env.FULLSCREEN_LOAD?8294400:2073600)&&globe.bufferBytes<64*1024*1024);}
     assert.ok(bounds.stats<=6000); assert.ok(bounds.markers<=1200); assert.ok(bounds.cluster<=1200); assert.ok(bounds.routes<=480); assert.ok(bounds.heat<=1440); assert.equal(bounds.rejected,0); assert.equal(bounds.received,100000); assert.equal(bounds.dequeued,100000); assert.equal(bounds.admitted,100000); assert.equal(bounds.represented,100000);
     if(process.env.FULLSCREEN_LOAD){assert.equal(bounds.occluded,true);await page.evaluate(()=>TrafficGlobe.returnMap());await page.waitForTimeout(600);assert.equal(await page.evaluate(()=>TrajectoryPool.inspect().occluded),false);}
     await page.screenshot({path:'/tmp/observatory-map.png'});

@@ -25,7 +25,7 @@ const out='/tmp/nexus-artifacts';
    for(let i=0;i<8;i++)queueLiveEvent({ip:'demo-'+i,server_name:i%2?'Tokyo Edge':'Direct Access',location:'模拟访问 DEMO',lat:pts[i][0],lon:pts[i][1],time:new Date().toISOString(),count:1,lang:'zh',target_domain:'demo.example'});
   },100);
  });await page.waitForFunction(()=>TrafficGlobe.inspect().frames>12);
- const g=await page.evaluate(()=>TrafficGlobe.inspect());assert.equal(g.engine,'WebGL2');assert.ok(g.routes>=8&&g.routes<=g.routeLimit);assert.ok(g.pixels<=500000);assert.ok(g.bufferBytes<8e6);
+ const g=await page.evaluate(()=>TrafficGlobe.inspect());assert.equal(g.engine,'WebGL2');assert.ok(g.routes>=8&&g.routes<=g.routeLimit);assert.ok(g.pixels<=g.pixelBudget&&g.pixelBudget<=2073600);assert.ok(g.bufferBytes<64*1024*1024);
  await page.waitForTimeout(200);assert.ok((await page.evaluate(()=>TrafficGlobe.inspect().yaw))!==g.yaw);
  await page.screenshot({path:out+'/silk-globe-desktop.png'});
  // Check that actual geographic arcs remain finite even for antipodal positions.
